@@ -12,6 +12,7 @@
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "setup": "node scripts/setup-mcp.js",
+    "setup:win": "node scripts/setup-windows.js",
     "test": "jest",
     "test:pattern": "node tests/test-pattern-scanner.js",
     "test:mcp": "node scripts/test-mcp-server.js",

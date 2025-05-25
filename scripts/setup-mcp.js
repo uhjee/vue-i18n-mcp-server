@@ -42,7 +42,8 @@ async function setupMCP() {
       await new Promise((resolve, reject) => {
         const build = spawn('npm', ['run', 'build'], { 
           cwd: projectRoot, 
-          stdio: 'inherit' 
+          stdio: 'inherit',
+          shell: process.platform === 'win32' // Windows에서 shell 사용
         });
         build.on('close', (code) => {
           if (code === 0) resolve();

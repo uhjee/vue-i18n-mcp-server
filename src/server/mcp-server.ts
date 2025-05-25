@@ -135,12 +135,18 @@ export class VueI18nMCPServer {
     
     // 5. 홈 디렉토리 하위에서 일반적인 프로젝트 디렉토리 찾기
     const commonProjectPaths = [
-      path.join(process.env.HOME || '', 'Dev'),
-      path.join(process.env.HOME || '', 'Projects'),
-      path.join(process.env.HOME || '', 'Documents'),
-      path.join(process.env.HOME || '', 'Desktop'),
-      path.join(process.env.HOME || '', 'workspace'),
-      path.join(process.env.HOME || '', 'code'),
+      path.join(process.env.HOME || process.env.USERPROFILE || '', 'Dev'),
+      path.join(process.env.HOME || process.env.USERPROFILE || '', 'Projects'),
+      path.join(process.env.HOME || process.env.USERPROFILE || '', 'Documents'),
+      path.join(process.env.HOME || process.env.USERPROFILE || '', 'Desktop'),
+      path.join(process.env.HOME || process.env.USERPROFILE || '', 'workspace'),
+      path.join(process.env.HOME || process.env.USERPROFILE || '', 'code'),
+      // Windows 특정 경로들 추가
+      'C:\\Users\\Public\\Documents',
+      'C:\\Projects',
+      'C:\\Dev',
+      'D:\\Projects',
+      'D:\\Dev',
     ];
     
     for (const basePath of commonProjectPaths) {
@@ -243,8 +249,8 @@ export class VueI18nMCPServer {
     const config = {
       projectRoot,
       langFilePath: {
-        ko: `${projectRoot}/${localesPath}/ko.js`,
-        en: `${projectRoot}/${localesPath}/en.js`,
+        ko: path.join(projectRoot, localesPath, 'ko.js'),
+        en: path.join(projectRoot, localesPath, 'en.js'),
       },
     };
 

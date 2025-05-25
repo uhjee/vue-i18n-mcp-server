@@ -18,6 +18,7 @@ async function runCommand(command, args, options = {}) {
     const proc = spawn(command, args, {
       stdio: 'inherit',
       cwd: projectRoot,
+      shell: process.platform === 'win32',
       ...options
     });
     

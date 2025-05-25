@@ -6,6 +6,7 @@
  */
 
 import { VueI18nMCPServer } from './server/mcp-server.js';
+import { pathToFileURL } from 'url';
 
 /**
  * 메인 실행 함수
@@ -48,8 +49,8 @@ async function main(): Promise<void> {
   }
 }
 
-// 스크립트 직접 실행 시에만 main 함수 호출 (ES Module 방식)
-if (import.meta.url === `file://${process.argv[1]}`) {
+// 스크립트 직접 실행 시에만 main 함수 호출 (ES Module 방식, Windows 호환)
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => {
     console.error('❌ 서버 실행 실패:', error);
     process.exit(1);

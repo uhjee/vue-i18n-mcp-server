@@ -22,54 +22,37 @@ Vue 파일에서 **한글 텍스트를 자동으로 찾아서** i18n 키로 변�
 </template>
 ```
 
-## ⚡ 빠른 시작 (3단계)
+## 🚀 빠른 시작
 
-### 1️⃣ MCP 서버 설치
+### 1. 설치 및 빌드
 
 ```bash
-# 1. 이 프로젝트 클론
-git clone <repository-url>
-cd vue-i18n-mcp-server
-
-# 2. 의존성 설치 및 빌드
+# 의존성 설치
 npm install
+
+# TypeScript 빌드
 npm run build
 ```
 
-### 2️⃣ Vue 프로젝트에 설정
+### 2. MCP 서버 설정
 
-**자동 설정 (추천):**
 ```bash
-# Vue 프로젝트 폴더에서 실행
+# 자동 설정 스크립트 실행
 npm run setup
 ```
 
-**수동 설정:**
-Vue 프로젝트에 `.vscode/mcp.json` 파일 생성:
+**Windows 사용자 주의사항:**
+- PowerShell 또는 Command Prompt에서 실행하세요
+- 경로에 한글이 포함된 경우 문제가 발생할 수 있으니 영문 경로를 사용하세요
+- Git Bash 사용 시 경로 구분자 문제가 있을 수 있으니 PowerShell 사용을 권장합니다
 
-```json
-{
-  "$schema": "https://github.com/modelcontextprotocol/servers/raw/main/schemas/mcp.schema.json",
-  "mcpServers": {
-    "vue-i18n-automation": {
-      "command": "node",
-      "args": ["/절대경로/vue-i18n-mcp-server/dist/src/index.js"],
-      "env": {
-        "LOCALES_PATH": "src/locales",
-        "PROJECT_ROOT": "/절대경로/your-vue-project",
-        "I18N_FUNCTION_TYPE": "VUE_I18N_WATCHALL"
-      }
-    }
-  }
-}
+**Windows 전용 설정 (권장):**
+```powershell
+# Windows 환경에 최적화된 설정 스크립트
+npm run setup:win
 ```
 
-> ⚠️ **중요**: 위의 세 가지 경로를 실제 경로로 변경하세요!
->  - args: 로컬에 설치한 MCP 서버 경로
->  - PROJECT_ROOT: Vue 프로젝트 루트
->  - LOCALES_PATH: Vue 프로젝트 내 en.js | ko.js 위치한 경로
-
-### 3️⃣ VSCode에서 사용
+### 3. VSCode에서 MCP 활성화
 
 1. **VSCode 열기**: Vue 프로젝트를 VSCode로 열기
 2. **MCP 활성화**: `Cmd+Shift+P` → "GitHub Copilot: Enable MCP" 실행
@@ -181,6 +164,12 @@ MCP 서버가 잘못된 경로에서 실행되는 경우:
 }
 ```
 
+**Windows 환경 추가 고려사항:**
+- **경로 구분자**: Windows에서는 `\` 대신 `/` 또는 `\\`를 사용하세요
+- **드라이브 문자**: `C:\Users\사용자명\Projects\your-vue-project` 형태로 절대 경로 지정
+- **PowerShell 권장**: Git Bash보다는 PowerShell이나 Command Prompt 사용 권장
+- **관리자 권한**: 일부 경로에서는 관리자 권한이 필요할 수 있습니다
+
 ## 🧪 테스트
 
 설치가 제대로 되었는지 확인:
@@ -192,6 +181,15 @@ npm run test:full
 # 개별 테스트
 npm run test:pattern     # 한글 추출 테스트
 npm run test:translation # 번역 매칭 테스트
+```
+
+**Windows 환경에서 테스트:**
+```powershell
+# PowerShell에서 실행
+npm run test:full
+
+# 또는 Command Prompt에서
+npm run test:full
 ```
 
 ## 🔧 문제 해결

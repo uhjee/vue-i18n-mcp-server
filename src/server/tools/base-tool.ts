@@ -4,6 +4,7 @@
  */
 
 import { ToolContext } from '../../types/index.js';
+import path from 'path';
 
 /**
  * MCP 도구 인터페이스
@@ -64,12 +65,12 @@ export abstract class BaseTool implements MCPTool {
    */
   protected resolveFilePath(filePath?: string): string {
     if (filePath) {
-      // 절대 경로인지 확인
-      if (filePath.startsWith('/') || filePath.includes(':')) {
+      // 절대 경로인지 확인 (Windows와 Unix 모두 지원)
+      if (path.isAbsolute(filePath)) {
         return filePath;
       }
       // 상대 경로를 절대 경로로 변환
-      return `${this.context.projectRoot}/${filePath}`;
+      return path.join(this.context.projectRoot, filePath);
     }
 
     // filePath가 없으면 현재 파일 사용
