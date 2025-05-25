@@ -1,0 +1,68 @@
+{
+  "기본 설정 (vue-i18n 표준)": {
+    "env": {
+      "I18N_FUNCTION_TYPE": "DEFAULT"
+    },
+    "설명": "Vue 2/3 Options API 스타일",
+    "결과": {
+      "vue_template": "{{ $t('WATCHALL.WORD.LOGIN') }}",
+      "vue_script": "this.$t('WATCHALL.WORD.LOGIN')",
+      "javascript": "i18n.t('WATCHALL.WORD.LOGIN')"
+    }
+  },
+
+  "Vue i18n 글로벌 설정": {
+    "env": {
+      "LOCALES_PATH": "src/locales",
+      "I18N_FUNCTION_TYPE": "VUE_I18N_WATCHALL"
+    },
+    "설명": "setup()에서 글로벌 $t 사용",
+    "결과": {
+      "vue_template": "{{ $t('WATCHALL.WORD.LOGIN') }}",
+      "vue_script": "$t('WATCHALL.WORD.LOGIN')",
+      "javascript": "$t('WATCHALL.WORD.LOGIN')"
+    }
+  },
+
+  "Vue 3 Composition API 스타일": {
+    "env": {
+      "I18N_FUNCTION_TYPE": "VUE_I18N_COMPOSABLE"
+    },
+    "설명": "const { t } = useI18n() 훅 사용",
+    "결과": {
+      "vue_template": "{{ t('WATCHALL.WORD.LOGIN') }}",
+      "vue_script": "t('WATCHALL.WORD.LOGIN')",
+      "javascript": "i18n.global.t('WATCHALL.WORD.LOGIN')"
+    }
+  },
+
+  "커스텀 함수 설정": {
+    "env": {
+      "I18N_FUNCTION_TYPE": "CUSTOM",
+      "I18N_VUE_TEMPLATE": "translate",
+      "I18N_VUE_SCRIPT": "this.translate",
+      "I18N_JS_FUNCTION": "translate"
+    },
+    "설명": "자체 번역 함수 사용",
+    "결과": {
+      "vue_template": "{{ translate('WATCHALL.WORD.LOGIN') }}",
+      "vue_script": "this.translate('WATCHALL.WORD.LOGIN')",
+      "javascript": "translate('WATCHALL.WORD.LOGIN')"
+    }
+  },
+
+  "언더스코어 함수 스타일": {
+    "env": {
+      "I18N_FUNCTION_TYPE": "CUSTOM",
+      "I18N_VUE_TEMPLATE": "__",
+      "I18N_VUE_SCRIPT": "this.__",
+      "I18N_JS_FUNCTION": "__"
+    },
+    "설명": "짧은 함수명 사용 (lodash 스타일)",
+    "결과": {
+      "vue_template": "{{ __('WATCHALL.WORD.LOGIN') }}",
+      "vue_script": "this.__('WATCHALL.WORD.LOGIN')",
+      "javascript": "__('WATCHALL.WORD.LOGIN')"
+    }
+  }
+} 

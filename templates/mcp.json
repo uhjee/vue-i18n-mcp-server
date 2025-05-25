@@ -1,0 +1,16 @@
+{
+  "$schema": "https://github.com/modelcontextprotocol/servers/raw/main/schemas/mcp.schema.json",
+  "mcpServers": {
+    "vue-i18n-automation": {
+      "command": "node",
+      "args": [
+        "/CHANGE_TO_ABSOLUTE_PATH/vue-i18n-mcp-server/dist/src/index.js"
+      ],
+      "env": {
+        "LOCALES_PATH": "src/locales",
+        "PROJECT_ROOT": "/CHANGE_TO_YOUR_PROJECT_ROOT",
+        "I18N_FUNCTION_TYPE": "VUE_I18N_WATCHALL"
+      }
+    }
+  }
+}
