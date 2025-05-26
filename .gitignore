@@ -1,2 +1,15 @@
 node_modules/
 dist/
+
+# 개발/테스트 임시 파일들
+*test*.js
+!test-namespace-fix.js
+!tests/test-comprehensive-i18n.js
+
+# 백업 폴더
+.translation-backups/
+
+# 임시 파일들
+*.tmp
+*.temp
+debug-*.js

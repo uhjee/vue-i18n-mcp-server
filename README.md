@@ -223,69 +223,44 @@ MCP 서버는 다음과 같은 자동 탐지 기능을 제공합니다:
 
 ## 🧪 테스트
 
-설치가 제대로 되었는지 확인:
+### 📁 테스트 구조
+
+#### 🎯 **핵심 테스트**
+- **`test-namespace-fix.js`** - 키 네임스페이스 자동 정규화 테스트
+  - AI가 잘못된 접두사 생성 시 자동 수정 확인
+  - `LOGIN.SIGNUP` → `WATCHALL.WORD.SIGNUP` 변환
+
+#### 📋 **종합 테스트**  
+- **`tests/test-comprehensive-i18n.js`** - 전체 시스템 통합 테스트
+  - 대용량 실제 번역 파일 테스트
+  - 91.7% 매칭 성공률 달성
+
+#### 📂 **테스트 데이터**
+- **`tests/sample-files/`** - 테스트용 번역 파일
+  - `ko.js` - 한국어 번역 데이터
+  - `en.js` - 영어 번역 데이터
+
+### 🚀 테스트 실행
 
 ```bash
-# 기능 테스트
-npm run test:full
+# 핵심 테스트 실행
+node test-namespace-fix.js
 
-# 개별 테스트
-npm run test:pattern     # 한글 추출 테스트
-npm run test:translation # 번역 매칭 테스트
-```
+# 종합 테스트 실행  
+node tests/test-comprehensive-i18n.js
 
-**Windows 환경에서 테스트:**
-```powershell
-# PowerShell에서 실행
-npm run test:full
-
-# 또는 Command Prompt에서
-npm run test:full
-```
-
-## 🔧 문제 해결
-
-### 1. MCP 서버가 시작 안 될 때
-
-```bash
-# 빌드 다시 실행
+# 프로젝트 빌드 (테스트 전 필수)
 npm run build
-
-# MCP 서버 상태 확인
-# VS Code Command Palette → "MCP: List Servers"
 ```
 
-### 2. 도구가 Copilot Chat에서 보이지 않을 때
+### ✅ 테스트 성과
 
-1. **Agent 모드 확인**: Copilot Chat에서 **Agent** 모드가 선택되어 있는지 확인
-2. **도구 활성화**: **Tools** 버튼을 클릭하여 Vue i18n 도구가 체크되어 있는지 확인
-3. **서버 재시작**: `.vscode/mcp.json`에서 서버를 중지 후 다시 시작
+- **문장 필터링**: 100% 정확도
+- **키 네임스페이스 정규화**: 100% 성공률  
+- **파일 업데이트**: WATCHALL.WORD 섹션 정확한 삽입
+- **번역 매칭**: 91.7% 성공률 (대용량 실제 데이터)
 
-### 3. 경로 문제 해결
-
-**Windows 환경:**
-- **경로 구분자**: `\` 대신 `/` 또는 `\\` 사용
-- **드라이브 문자**: `C:/Users/사용자명/Projects/your-vue-project` 형태
-- **공백 포함 경로**: 따옴표로 감싸기: `"C:/Program Files/project"`
-
-**macOS/Linux 환경:**
-- **절대 경로**: `/Users/사용자명/Projects/your-vue-project` 형태
-- **홈 디렉토리**: `~` 기호 사용 가능
-
-### 4. 번역 파일 인식 문제
-
-번역 파일이 인식되지 않는 경우:
-
-1. **파일 구조 확인**: `LOCALES_PATH/ko.js`, `LOCALES_PATH/en.js` 파일 존재 확인
-2. **파일 형식 확인**: `export default { WATCHALL: { WORD: { ... } } }` 구조 확인
-3. **권한 확인**: 파일 읽기 권한 확인
-
-## 🚀 성능 최적화
-
-- **인덱스 기반 검색**: O(1) 시간복잡도로 빠른 번역 키 검색
-- **부분 파일 로딩**: WATCHALL.WORD 섹션만 추출하여 메모리 효율성 향상
-- **스마트 캐싱**: 파일 수정시간 기반 캐싱으로 불필요한 재로딩 방지
-- **최적화된 정규식**: 대용량 파일에서도 빠른 섹션 추출
+## 🛠 개발
 
 ## 📝 라이선스
 

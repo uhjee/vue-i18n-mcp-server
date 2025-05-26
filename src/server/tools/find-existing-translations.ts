@@ -5,6 +5,7 @@
 
 import { BaseTool } from './base-tool.js';
 import { TranslationMatcherService, TranslationMatch } from '../../services/translation-matcher.js';
+import { PatternScannerService } from '../../services/pattern-scanner.js';
 import { ToolContext } from '../../types/index.js';
 
 interface FindExistingTranslationsInput {
@@ -50,10 +51,12 @@ export class FindExistingTranslationsTool extends BaseTool {
   };
 
   private translationMatcher: TranslationMatcherService;
+  private patternScanner: PatternScannerService;
 
   constructor(context: ToolContext) {
     super(context);
     this.translationMatcher = new TranslationMatcherService(context.config);
+    this.patternScanner = new PatternScannerService();
   }
 
   /**
@@ -63,6 +66,15 @@ export class FindExistingTranslationsTool extends BaseTool {
     try {
       console.error(`🔍 기존 번역 매칭 시작: ${input.koreanTexts.length}개 텍스트`);
       console.error(`📝 입력 텍스트: ${input.koreanTexts.join(', ')}`);
+
+      // 문장 필터링 적용
+      const filteredTexts = this.filterSentences(input.koreanTexts);
+      const filteredCount = input.koreanTexts.length - filteredTexts.length;
+      
+      if (filteredCount > 0) {
+        console.error(`🚫 ${filteredCount}개 문장이 필터링되었습니다`);
+        console.error(`✅ 처리 대상: ${filteredTexts.length}개 단어/구문`);
+      }
 
       // 번역 파일 로드
       console.error(`📁 번역 파일 로드 시작...`);
@@ -79,10 +91,10 @@ export class FindExistingTranslationsTool extends BaseTool {
 
       // 매칭 찾기
       console.error(`🔍 매칭 검색 시작...`);
-      const matches = await this.translationMatcher.findMatches(input.koreanTexts);
-      const unmatched = await this.translationMatcher.getUnmatchedTexts(input.koreanTexts);
+      const matches = await this.translationMatcher.findMatches(filteredTexts);
+      const unmatched = await this.translationMatcher.getUnmatchedTexts(filteredTexts);
 
-      // 매칭률 계산
+      // 매칭률 계산 (원본 텍스트 기준)
       const matchRate = input.koreanTexts.length > 0 
         ? (matches.length / input.koreanTexts.length) * 100 
         : 0;
@@ -161,5 +173,17 @@ export class FindExistingTranslationsTool extends BaseTool {
     }
 
     return recommendations;
+  }
+
+  /**
+   * 문장 필터링 - 문장인 텍스트는 제외하고 단어/구문만 반환
+   */
+  private filterSentences(texts: string[]): string[] {
+    return texts.filter(text => {
+      // PatternScannerService의 extractKoreanFromText를 통해 
+      // 문장인지 확인 (빈 배열이면 문장으로 필터링된 것)
+      const extracted = (this.patternScanner as any).extractKoreanFromText(text);
+      return extracted.length > 0;
+    });
   }
 } 

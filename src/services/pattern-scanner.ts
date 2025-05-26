@@ -417,7 +417,57 @@ export class PatternScannerService {
       /^[A-Z_]+$/, // 상수명
     ];
 
+    // 문장 필터링 추가
+    if (this.isSentence(text)) {
+      return true;
+    }
+
     return excludePatterns.some(pattern => pattern.test(text));
+  }
+
+  /**
+   * 문장인지 판별
+   */
+  private isSentence(text: string): boolean {
+    // 문장 판별 기준들
+    const sentenceIndicators = [
+      // 1. 문장 종결 어미
+      /[다요음니]$/,           // ~다, ~요, ~음, ~니 등으로 끝남
+      
+      // 2. 물음표, 느낌표 포함
+      /[?!]/, 
+      
+      // 3. 조사가 포함된 긴 텍스트 (8글자 이상이면서 조사 포함)
+      text.length >= 8 && /[이가은는을를에서와과]/.test(text),
+      
+      // 4. 서술형 표현
+      /입니다$|습니다$|했습니다$|됩니다$|합니다$/,
+      
+      // 5. 의문문 패턴
+      /까요\?$|세요\?$|나요\?$|어요\?$/,
+      
+      // 6. 명령문 패턴
+      /세요$|하세요$|해주세요$|십시오$/,
+      
+      // 7. 접속사나 부사로 시작
+      /^(그런데|하지만|따라서|또한|만약|예를 들어|즉|결국)/,
+      
+      // 8. 완전한 문장 형태 (주어+서술어)
+      /[이가은는].*[다요음니]$/,
+      
+      // 9. 긴 설명문 (15글자 이상이면서 공백 포함)
+      text.length >= 15 && /\s/.test(text),
+      
+      // 10. 일반적인 문장 패턴들
+      /해야\s?합니다|할\s?수\s?있습니다|하지\s?마세요|하시겠습니까|하고\s?싶습니다/,
+    ];
+
+    return sentenceIndicators.some(indicator => {
+      if (typeof indicator === 'boolean') {
+        return indicator;
+      }
+      return indicator.test(text);
+    });
   }
 
   /**

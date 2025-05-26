@@ -5,6 +5,18 @@ export default {
       A_LARGE_AMOUNT: {
         N: 'A Large Amount',
       },
+    FILTER_TEST: {
+      N: 'Filter Test'
+    },
+    NOTIFICATION_SETTING: {
+      N: 'Notification Setting'
+    },
+    SIGNUP: {
+      N: 'Signup'
+    },
+    TEST_WORD: {
+      N: 'Test Word'
+    },
       ABNORMAL: {
         N: 'Abnormal',
       },
@@ -6348,6 +6360,18 @@ export default {
       },
       PATTERN_NAME: {
         N: 'Pattern Name',
+    SECTION_TEST: {
+      N: 'Section Test'
+    SIGNUP: {
+      N: 'Signup'
+    FIND_PASSWORD: {
+      N: 'Find Password'
+    AUTO_LOGIN: {
+      N: 'Auto Login'
+    },
+    },
+    },
+    },
       },
     },
     MSG: {

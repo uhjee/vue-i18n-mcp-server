@@ -21,6 +21,9 @@ const __dirname = path.dirname(__filename);
 import { MCPServerConfig, ToolContext } from '../types/index.js';
 import { ProcessKoreanReplacementTool } from './tools/process-korean-replacement.js';
 import { FindExistingTranslationsTool } from './tools/find-existing-translations.js';
+import { PrepareTranslationRequestTool } from './tools/prepare-translation-request.js';
+import { ProcessTranslationResponseTool } from './tools/process-translation-response.js';
+import { ManageTranslationBackupsTool } from './tools/manage-translation-backups.js';
 
 /**
  * Vue I18n 자동화를 위한 MCP 서버
@@ -284,6 +287,22 @@ export class VueI18nMCPServer {
       'find-existing-translations',
       new FindExistingTranslationsTool(toolContext),
     );
+
+    // 새로운 번역 키 생성 시스템 도구들
+    this.tools.set(
+      'prepare-translation-request',
+      new PrepareTranslationRequestTool(toolContext),
+    );
+
+    this.tools.set(
+      'process-translation-response',
+      new ProcessTranslationResponseTool(toolContext),
+    );
+
+    this.tools.set(
+      'manage-translation-backups',
+      new ManageTranslationBackupsTool(toolContext),
+    );
   }
 
   /**
@@ -375,6 +394,15 @@ export class VueI18nMCPServer {
         break;
       case 'find-existing-translations':
         formattedResult += this.formatMatchingResult(result);
+        break;
+      case 'prepare-translation-request':
+        formattedResult += this.formatPrepareTranslationResult(result);
+        break;
+      case 'process-translation-response':
+        formattedResult += this.formatProcessTranslationResult(result);
+        break;
+      case 'manage-translation-backups':
+        formattedResult += this.formatBackupManagementResult(result);
         break;
       default:
         formattedResult += JSON.stringify(result, null, 2);
@@ -490,6 +518,137 @@ export class VueI18nMCPServer {
       result.recommendations.forEach((rec: string, index: number) => {
         formatted += `${index + 1}. ${rec}\n`;
       });
+    }
+
+    return formatted;
+  }
+
+  /**
+   * 번역 요청 준비 결과 포맷팅
+   */
+  private formatPrepareTranslationResult(result: any): string {
+    let formatted = `📋 **번역 요청 준비 결과**\n`;
+    formatted += `- 총 텍스트: ${result.summary.totalTexts}개\n`;
+    formatted += `- 기존 번역: ${result.summary.alreadyTranslated}개\n`;
+    formatted += `- 번역 필요: ${result.summary.needsTranslation}개\n\n`;
+
+    if (result.untranslatedTexts && result.untranslatedTexts.length > 0) {
+      formatted += `🆕 **번역이 필요한 텍스트**\n`;
+      result.untranslatedTexts.slice(0, 10).forEach((text: string, index: number) => {
+        formatted += `${index + 1}. "${text}"\n`;
+      });
+      if (result.untranslatedTexts.length > 10) {
+        formatted += `   ... 외 ${result.untranslatedTexts.length - 10}개\n`;
+      }
+      formatted += '\n';
+    }
+
+    formatted += `🤖 **AI 에이전트 프롬프트가 준비되었습니다**\n`;
+    formatted += `다음 단계: AI 에이전트에게 프롬프트를 전달하여 번역 키를 생성하세요.\n`;
+
+    return formatted;
+  }
+
+  /**
+   * 번역 응답 처리 결과 포맷팅
+   */
+  private formatProcessTranslationResult(result: any): string {
+    let formatted = `✅ **번역 응답 처리 결과**\n`;
+    formatted += `- 검증 상태: ${result.validationResult.isValid ? '성공' : '실패'}\n`;
+    
+    if (result.validationResult.errors && result.validationResult.errors.length > 0) {
+      formatted += `- 오류: ${result.validationResult.errors.length}개\n`;
+    }
+    
+    if (result.validationResult.warnings && result.validationResult.warnings.length > 0) {
+      formatted += `- 경고: ${result.validationResult.warnings.length}개\n`;
+    }
+
+    if (result.updateResult) {
+      formatted += `- 업데이트된 키: ${result.updateResult.updatedKeys.length}개\n`;
+      if (result.updateResult.backupPath) {
+        formatted += `- 백업 경로: ${result.updateResult.backupPath}\n`;
+      }
+    }
+
+    formatted += '\n';
+
+    if (result.validationResult.errors && result.validationResult.errors.length > 0) {
+      formatted += `❌ **검증 오류**\n`;
+      result.validationResult.errors.forEach((error: string, index: number) => {
+        formatted += `${index + 1}. ${error}\n`;
+      });
+      formatted += '\n';
+    }
+
+    if (result.updateResult && result.updateResult.updatedKeys.length > 0) {
+      formatted += `🔑 **추가된 키**\n`;
+      result.updateResult.updatedKeys.forEach((key: string, index: number) => {
+        formatted += `${index + 1}. ${key}\n`;
+      });
+      formatted += '\n';
+    }
+
+    if (result.recommendations && result.recommendations.suggestions.length > 0) {
+      formatted += `💡 **추천사항**\n`;
+      result.recommendations.suggestions.forEach((suggestion: string, index: number) => {
+        formatted += `${index + 1}. ${suggestion}\n`;
+      });
+    }
+
+    return formatted;
+  }
+
+  /**
+   * 백업 관리 결과 포맷팅
+   */
+  private formatBackupManagementResult(result: any): string {
+    let formatted = `🗂️ **백업 관리 결과**\n`;
+    formatted += `- 작업: ${result.action}\n`;
+    formatted += `- 상태: ${result.success ? '성공' : '실패'}\n`;
+    formatted += `- 메시지: ${result.message}\n\n`;
+
+    switch (result.action) {
+      case 'list':
+        if (result.result.backups && result.result.backups.length > 0) {
+          formatted += `📋 **백업 목록**\n`;
+          result.result.backups.slice(0, 10).forEach((backup: string, index: number) => {
+            formatted += `${index + 1}. ${backup}\n`;
+          });
+          if (result.result.backups.length > 10) {
+            formatted += `   ... 외 ${result.result.backups.length - 10}개\n`;
+          }
+        }
+        break;
+      
+      case 'create':
+        if (result.result.backupPath) {
+          formatted += `📁 **생성된 백업**: ${result.result.backupPath}\n`;
+        }
+        break;
+      
+      case 'cleanup':
+        if (result.result.cleanupResult) {
+          const cleanup = result.result.cleanupResult;
+          formatted += `🧹 **정리 결과**\n`;
+          formatted += `- 삭제됨: ${cleanup.deleted}개\n`;
+          formatted += `- 남음: ${cleanup.remaining}개\n`;
+        }
+        break;
+      
+      case 'validate':
+        if (result.result.validationResult) {
+          const validation = result.result.validationResult;
+          formatted += `🔍 **검증 결과**\n`;
+          formatted += `- 상태: ${validation.isValid ? '정상' : '오류'}\n`;
+          if (validation.errors && validation.errors.length > 0) {
+            formatted += `- 오류들:\n`;
+            validation.errors.forEach((error: string, index: number) => {
+              formatted += `  ${index + 1}. ${error}\n`;
+            });
+          }
+        }
+        break;
     }
 
     return formatted;
