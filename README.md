@@ -34,33 +34,92 @@ npm install
 npm run build
 ```
 
-### 2. MCP 서버 설정
+### 2. VS Code MCP 설정 (최신 방식)
 
-```bash
-# 자동 설정 스크립트 실행
-npm run setup
+#### 방법 1: 워크스페이스 설정 (권장)
+
+Vue 프로젝트 루트에 `.vscode/mcp.json` 파일을 생성하고 다음 내용을 추가하세요:
+
+```json
+{
+  // 💡 입력값들은 서버 첫 시작 시 프롬프트되며, VS Code에 안전하게 저장됩니다.
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "project-root",
+      "description": "프로젝트 루트 경로",
+      "password": false
+    },
+    {
+      "type": "promptString", 
+      "id": "locales-path",
+      "description": "번역 파일 디렉토리 경로 (프로젝트 루트 기준 상대경로)",
+      "password": false
+    }
+  ],
+  "servers": {
+    "vueI18nAutomation": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "/절대경로/vue-i18n-mcp-server/dist/src/index.js"
+      ],
+      "env": {
+        "PROJECT_ROOT": "${input:project-root}",
+        "LOCALES_PATH": "${input:locales-path}",
+        "I18N_FUNCTION_TYPE": "VUE_I18N_WATCHALL"
+      }
+    }
+  }
+}
+```
+
+**중요**: `/절대경로/vue-i18n-mcp-server/dist/src/index.js`를 실제 경로로 변경하세요.
+
+#### 방법 2: 사용자 설정
+
+VS Code 설정(`settings.json`)에 추가:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "vueI18nAutomation": {
+        "type": "stdio",
+        "command": "node",
+        "args": ["/절대경로/vue-i18n-mcp-server/dist/src/index.js"],
+        "env": {
+          "PROJECT_ROOT": "/your/project/path",
+          "LOCALES_PATH": "src/locales",
+          "I18N_FUNCTION_TYPE": "VUE_I18N_WATCHALL"
+        }
+      }
+    }
+  }
+}
+```
+
+### 3. VS Code에서 MCP 활성화
+
+1. **MCP 기능 활성화**: VS Code 설정에서 `chat.mcp.enabled`를 `true`로 설정
+2. **서버 시작**: `.vscode/mcp.json` 파일에서 **Start** 버튼 클릭
+3. **서버 상태 확인**: Command Palette에서 **MCP: List Servers** 실행
+
+### 4. Copilot Chat에서 사용
+
+1. **Copilot Chat 열기**: `Ctrl+Alt+I` (Windows/Linux) 또는 `⌃⌘I` (Mac)
+2. **Agent 모드 선택**: 채팅 박스에서 **Agent** 선택
+3. **도구 확인**: **Tools** 버튼을 클릭하여 Vue i18n 도구가 활성화되어 있는지 확인
+4. **사용 예시**:
+
+```
+Vue 파일에서 한글 텍스트를 찾아서 i18n으로 변환해줘
 ```
 
 **Windows 사용자 주의사항:**
 - PowerShell 또는 Command Prompt에서 실행하세요
 - 경로에 한글이 포함된 경우 문제가 발생할 수 있으니 영문 경로를 사용하세요
 - Git Bash 사용 시 경로 구분자 문제가 있을 수 있으니 PowerShell 사용을 권장합니다
-
-**Windows 전용 설정 (권장):**
-```powershell
-# Windows 환경에 최적화된 설정 스크립트
-npm run setup:win
-```
-
-### 3. VSCode에서 MCP 활성화
-
-1. **VSCode 열기**: Vue 프로젝트를 VSCode로 열기
-2. **MCP 활성화**: `Cmd+Shift+P` → "GitHub Copilot: Enable MCP" 실행
-3. **Copilot 채팅에서 사용**:
-
-```
-@vue-i18n-automation 이 파일의 한글을 분석해줘
-```
 
 ## 🎯 실제 사용 예시
 
@@ -89,7 +148,7 @@ npm run setup:win
 📝 변환 예시:
 - {{ $localeMessage('WATCHALL.WORD.LOGIN') }}
 - {{ $localeMessage('WATCHALL.WORD.ID') }}
-- {{ $localeMessage([WATCHALL.WORD.PASSWORD, WATCHALL.WORD.FIND]) }}
+- {{ $localeMessage(['WATCHALL.WORD.PASSWORD', 'WATCHALL.WORD.FIND']) }}
 ```
 
 ## 📁 필수 파일 구조
@@ -103,7 +162,7 @@ your-vue-project/
 │       ├── ko.js         👈 한글 번역 파일
 │       └── en.js         👈 영문 번역 파일
 └── .vscode/
-    └── mcp.json          👈 MCP 설정 파일
+    └── mcp.json          👈 MCP 설정 파일 (새로운 방식)
 ```
 
 **ko.js 예시:**
@@ -146,29 +205,21 @@ export default {
 | `DEFAULT` | `$t` | `this.$t` | `i18n.t` |
 | `VUE_I18N_COMPOSABLE` | `t` | `t` | `i18n.global.t` |
 
-### 프로젝트 루트 자동 탐지 문제 해결
+### 입력 변수 활용
 
-MCP 서버가 잘못된 경로에서 실행되는 경우:
+최신 MCP 설정에서는 `inputs` 섹션을 통해 안전하게 설정값을 관리할 수 있습니다:
 
-**증상:**
-```
-프로젝트 루트 자동 탐지 시작: /Users/사용자명
-프로젝트 루트를 찾을 수 없어서 현재 디렉토리 사용: /Users/사용자명
-```
+- **프로젝트 루트**: 서버 첫 시작 시 프롬프트로 입력받아 VS Code에 안전하게 저장
+- **번역 파일 경로**: 프로젝트별로 다른 경로 설정 가능
+- **보안**: 민감한 정보는 `"password": true` 옵션으로 숨김 처리 가능
 
-**해결책:**
-`.vscode/mcp.json`에 `PROJECT_ROOT` 명시적 설정:
-```json
-"env": {
-  "PROJECT_ROOT": "/Users/사용자명/Dev/your-vue-project"
-}
-```
+### 자동 탐지 기능
 
-**Windows 환경 추가 고려사항:**
-- **경로 구분자**: Windows에서는 `\` 대신 `/` 또는 `\\`를 사용하세요
-- **드라이브 문자**: `C:\Users\사용자명\Projects\your-vue-project` 형태로 절대 경로 지정
-- **PowerShell 권장**: Git Bash보다는 PowerShell이나 Command Prompt 사용 권장
-- **관리자 권한**: 일부 경로에서는 관리자 권한이 필요할 수 있습니다
+MCP 서버는 다음과 같은 자동 탐지 기능을 제공합니다:
+
+- **Claude Desktop 설정 자동 발견**: `chat.mcp.discovery.enabled` 설정으로 기존 Claude 설정 재사용
+- **워크스페이스 폴더 자동 전달**: VS Code가 현재 워크스페이스 정보를 서버에 자동 전달
+- **파일 수정시간 기반 캐싱**: 번역 파일이 변경된 경우에만 다시 로드
 
 ## 🧪 테스트
 
@@ -200,38 +251,46 @@ npm run test:full
 # 빌드 다시 실행
 npm run build
 
-# 수동 실행으로 오류 확인
-node dist/src/index.js
+# MCP 서버 상태 확인
+# VS Code Command Palette → "MCP: List Servers"
 ```
 
-### 2. 한글이 인식 안 될 때
+### 2. 도구가 Copilot Chat에서 보이지 않을 때
 
-1. **언어 파일 경로 확인**: `ko.js`, `en.js` 파일이 `LOCALES_PATH`에 있는지 확인
-2. **파일 형식 확인**: `export default { ... }` 형식인지 확인
-3. **인코딩 확인**: UTF-8 인코딩인지 확인
+1. **Agent 모드 확인**: Copilot Chat에서 **Agent** 모드가 선택되어 있는지 확인
+2. **도구 활성화**: **Tools** 버튼을 클릭하여 Vue i18n 도구가 체크되어 있는지 확인
+3. **서버 재시작**: `.vscode/mcp.json`에서 서버를 중지 후 다시 시작
 
-### 3. VSCode에서 연결 안 될 때
+### 3. 경로 문제 해결
 
-1. **절대 경로 사용**: `.vscode/mcp.json`에서 상대 경로 대신 절대 경로 사용
-2. **VSCode 재시작**: 완전 종료 후 다시 열기
-3. **MCP 재활성화**: `Cmd+Shift+P` → "GitHub Copilot: Enable MCP"
+**Windows 환경:**
+- **경로 구분자**: `\` 대신 `/` 또는 `\\` 사용
+- **드라이브 문자**: `C:/Users/사용자명/Projects/your-vue-project` 형태
+- **공백 포함 경로**: 따옴표로 감싸기: `"C:/Program Files/project"`
 
-### 4. 설정 다시 하고 싶을 때
+**macOS/Linux 환경:**
+- **절대 경로**: `/Users/사용자명/Projects/your-vue-project` 형태
+- **홈 디렉토리**: `~` 기호 사용 가능
 
-```bash
-npm run setup  # 기존 설정을 덮어씁니다
-```
+### 4. 번역 파일 인식 문제
 
-## 🎉 완료!
+번역 파일이 인식되지 않는 경우:
 
-이제 Copilot에서 `@vue-i18n-automation`을 사용해서 한글 텍스트를 자동으로 i18n 키로 변환할 수 있습니다!
+1. **파일 구조 확인**: `LOCALES_PATH/ko.js`, `LOCALES_PATH/en.js` 파일 존재 확인
+2. **파일 형식 확인**: `export default { WATCHALL: { WORD: { ... } } }` 구조 확인
+3. **권한 확인**: 파일 읽기 권한 확인
 
-**Happy Coding! 🚀**
+## 🚀 성능 최적화
 
----
+- **인덱스 기반 검색**: O(1) 시간복잡도로 빠른 번역 키 검색
+- **부분 파일 로딩**: WATCHALL.WORD 섹션만 추출하여 메모리 효율성 향상
+- **스마트 캐싱**: 파일 수정시간 기반 캐싱으로 불필요한 재로딩 방지
+- **최적화된 정규식**: 대용량 파일에서도 빠른 섹션 추출
 
-## 📞 지원
+## 📝 라이선스
 
-- **Node.js 버전**: 16.0.0 이상 필요
-- **문제 발생 시**: MCP 서버 로그 확인 (`console.error` 출력)
-- **이슈 리포트**: GitHub Issues에 로그와 함께 제보 
+MIT License
+
+## 🤝 기여
+
+이슈 리포트나 풀 리퀘스트를 환영합니다! 

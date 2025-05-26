@@ -1,14 +1,27 @@
 {
   "$schema": "https://github.com/modelcontextprotocol/servers/raw/main/schemas/mcp.schema.json",
-  "mcpServers": {
-    "vue-i18n-automation": {
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "project-root",
+      "description": "Project Root Path",
+      "password": false
+    },
+    {
+      "type": "promptString",
+      "id": "locales-path",
+      "description": "Locales Directory Path (relative to project root)",
+      "password": false
+    }
+  ],
+  "servers": {
+    "vueI18nAutomation": {
+      "type": "stdio",
       "command": "node",
-      "args": [
-        "/CHANGE_TO_ABSOLUTE_PATH/vue-i18n-mcp-server/dist/src/index.js"
-      ],
+      "args": ["C:/vue-i18n-mcp-server/dist/index.js"],
       "env": {
-        "LOCALES_PATH": "src/locales",
-        "PROJECT_ROOT": "/CHANGE_TO_YOUR_PROJECT_ROOT",
+        "PROJECT_ROOT": "${input:project-root}",
+        "LOCALES_PATH": "${input:locales-path}",
         "I18N_FUNCTION_TYPE": "VUE_I18N_WATCHALL"
       }
     }

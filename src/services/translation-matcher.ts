@@ -255,7 +255,7 @@ export class TranslationMatcherService {
   }
 
   /**
-   * 공백으로 분리된 단어들을 개별 매칭하여 조합 키 생성 (최적화된 버전)
+   * 공백으로 분리된 단어들을 개별 매칭하여 조합 키 생성 (부분 매칭 지원)
    */
   private findWordCombinationMatch(koreanText: string): TranslationMatch | null {
     // 공백으로 단어 분리
@@ -277,44 +277,44 @@ export class TranslationMatcherService {
     }
 
     // 여러 단어인 경우 개별 매칭 후 배열 형태로 키 생성
-    const matchedWords: Array<{korean: string, keyPath: string, english: string}> = [];
+    const processedWords: Array<{korean: string, keyPath: string, english: string, isMatched: boolean}> = [];
+    let matchedCount = 0;
     
     for (const word of words) {
       const keyPath = this.koWordIndex.get(word);
       if (keyPath) {
         const englishValue = this.enWordIndex.get(keyPath) || '';
-        matchedWords.push({
+        processedWords.push({
           korean: word,
           keyPath: keyPath,
-          english: englishValue
+          english: englishValue,
+          isMatched: true
+        });
+        matchedCount++;
+      } else {
+        // 매칭되지 않은 단어는 한글 그대로 유지
+        processedWords.push({
+          korean: word,
+          keyPath: `'${word}'`, // 한글 그대로 따옴표로 감싸기
+          english: word,
+          isMatched: false
         });
       }
     }
 
-    // 모든 단어가 매칭되었으면 배열 형태 키 생성
-    if (matchedWords.length === words.length) {
-      const keyPaths = matchedWords.map(w => w.keyPath);
-      const combinedEnglish = matchedWords.map(w => w.english).join(' ');
+    // 최소 하나 이상의 단어가 매칭되었으면 결과 생성
+    if (matchedCount > 0) {
+      const keyPaths = processedWords.map(w => w.keyPath);
+      const combinedEnglish = processedWords.map(w => w.english).join(' ');
+      
+      // 신뢰도 계산: 매칭된 단어 비율
+      const confidence = matchedCount === words.length ? 0.8 : 0.6;
       
       return {
         korean: koreanText,
         english: combinedEnglish,
-        keyPath: `[${keyPaths.join(', ')}]`, // 배열 형태로 키 표현
-        confidence: 0.8 // 조합 매칭은 0.8 신뢰도
-      };
-    }
-
-    // 부분 매칭된 경우도 처리
-    if (matchedWords.length > 0) {
-      const matchedKorean = matchedWords.map(w => w.korean).join(' ');
-      const keyPaths = matchedWords.map(w => w.keyPath);
-      const combinedEnglish = matchedWords.map(w => w.english).join(' ');
-      
-      return {
-        korean: koreanText,
-        english: `${combinedEnglish} (부분매칭: ${matchedKorean})`,
-        keyPath: `[${keyPaths.join(', ')}] + [NEW_KEYS_NEEDED]`,
-        confidence: 0.6 // 부분 매칭은 0.6 신뢰도
+        keyPath: `[${keyPaths.join(', ')}]`, // 배열 형태로 키 표현 (한글과 i18n 키 혼합)
+        confidence: confidence
       };
     }
 

@@ -185,7 +185,7 @@ export class PatternScannerService {
   }
 
   /**
-   * Vue Script에서 한글 추출 (정규식 기반)
+   * Vue Script에서 한글 추출 (개선된 버전)
    */
   private extractFromScript(filePath: string, scriptContent: string, startLine: number, section: 'script'): VueKoreanExtraction[] {
     const extractions: VueKoreanExtraction[] = [];
@@ -198,8 +198,8 @@ export class PatternScannerService {
       lines.forEach((line, index) => {
         const lineNumber = startLine + index;
         
-        // 문자열 리터럴에서 한글 추출 (간단한 정규식 방식)
-        const stringMatches = line.match(/['"`]([^'"`]*[가-힣][^'"`]*)['"`]/g);
+        // 1. 일반 문자열 리터럴에서 한글 추출 ('문자열', "문자열")
+        const stringMatches = line.match(/['"]([^'"]*[가-힣][^'"]*)['"]/g);
         if (stringMatches) {
           stringMatches.forEach(match => {
             const text = match.slice(1, -1); // 따옴표 제거
@@ -219,6 +219,165 @@ export class PatternScannerService {
                 }
               });
             });
+          });
+        }
+
+        // 2. 템플릿 리터럴에서 한글 추출 (`문자열`)
+        const templateMatches = line.match(/`([^`]*[가-힣][^`]*)`/g);
+        if (templateMatches) {
+          templateMatches.forEach(match => {
+            const text = match.slice(1, -1); // 백틱 제거
+            const korean = this.extractKoreanFromText(text);
+            korean.forEach(koreanText => {
+              extractions.push({
+                text: koreanText,
+                location: {
+                  section,
+                  line: lineNumber,
+                  column: line.indexOf(match),
+                },
+                context: {
+                  elementType: undefined,
+                  attributeType: undefined,
+                  variableContext: this.getSimpleVueContext(line),
+                }
+              });
+            });
+          });
+        }
+
+        // 3. alert, console.log 등 함수 호출에서 한글 추출
+        const functionCallMatches = line.match(/(alert|console\.log|console\.warn|console\.error|confirm|prompt)\s*\(\s*['"`]([^'"`]*[가-힣][^'"`]*)['"`]/g);
+        if (functionCallMatches) {
+          functionCallMatches.forEach(match => {
+            const textMatch = match.match(/['"`]([^'"`]*[가-힣][^'"`]*)['"`]/);
+            if (textMatch) {
+              const text = textMatch[1];
+              const korean = this.extractKoreanFromText(text);
+              korean.forEach(koreanText => {
+                extractions.push({
+                  text: koreanText,
+                  location: {
+                    section,
+                    line: lineNumber,
+                    column: line.indexOf(match),
+                  },
+                  context: {
+                    elementType: undefined,
+                    attributeType: undefined,
+                    variableContext: this.getSimpleFunctionContext(line),
+                  }
+                });
+              });
+            }
+          });
+        }
+
+        // 4. 객체 속성값에서 한글 추출 (key: '값' 형태)
+        const objectPropertyMatches = line.match(/(\w+)\s*:\s*['"`]([^'"`]*[가-힣][^'"`]*)['"`]/g);
+        if (objectPropertyMatches) {
+          objectPropertyMatches.forEach(match => {
+            const propertyMatch = match.match(/(\w+)\s*:\s*['"`]([^'"`]*[가-힣][^'"`]*)['"`]/);
+            if (propertyMatch) {
+              const text = propertyMatch[2];
+              const korean = this.extractKoreanFromText(text);
+              korean.forEach(koreanText => {
+                extractions.push({
+                  text: koreanText,
+                  location: {
+                    section,
+                    line: lineNumber,
+                    column: line.indexOf(match),
+                  },
+                  context: {
+                    elementType: undefined,
+                    attributeType: undefined,
+                    variableContext: this.getSimpleObjectKeyContext(line),
+                  }
+                });
+              });
+            }
+          });
+        }
+
+        // 5. 변수 할당에서 한글 추출 (const/let/var 변수 = '값')
+        const variableAssignMatches = line.match(/(?:const|let|var)\s+\w+\s*=\s*['"`]([^'"`]*[가-힣][^'"`]*)['"`]/g);
+        if (variableAssignMatches) {
+          variableAssignMatches.forEach(match => {
+            const valueMatch = match.match(/['"`]([^'"`]*[가-힣][^'"`]*)['"`]/);
+            if (valueMatch) {
+              const text = valueMatch[1];
+              const korean = this.extractKoreanFromText(text);
+              korean.forEach(koreanText => {
+                extractions.push({
+                  text: koreanText,
+                  location: {
+                    section,
+                    line: lineNumber,
+                    column: line.indexOf(match),
+                  },
+                  context: {
+                    elementType: undefined,
+                    attributeType: undefined,
+                    variableContext: this.getSimpleVariableContext(line),
+                  }
+                });
+              });
+            }
+          });
+        }
+
+        // 6. return 문에서 한글 추출
+        const returnMatches = line.match(/return\s+['"`]([^'"`]*[가-힣][^'"`]*)['"`]/g);
+        if (returnMatches) {
+          returnMatches.forEach(match => {
+            const valueMatch = match.match(/['"`]([^'"`]*[가-힣][^'"`]*)['"`]/);
+            if (valueMatch) {
+              const text = valueMatch[1];
+              const korean = this.extractKoreanFromText(text);
+              korean.forEach(koreanText => {
+                extractions.push({
+                  text: koreanText,
+                  location: {
+                    section,
+                    line: lineNumber,
+                    column: line.indexOf(match),
+                  },
+                  context: {
+                    elementType: undefined,
+                    attributeType: undefined,
+                    variableContext: 'return',
+                  }
+                });
+              });
+            }
+          });
+        }
+
+        // 7. 배열 요소에서 한글 추출 (['항목1', '항목2'])
+        const arrayMatches = line.match(/\[\s*['"`]([^'"`]*[가-힣][^'"`]*)['"`]/g);
+        if (arrayMatches) {
+          arrayMatches.forEach(match => {
+            const valueMatch = match.match(/['"`]([^'"`]*[가-힣][^'"`]*)['"`]/);
+            if (valueMatch) {
+              const text = valueMatch[1];
+              const korean = this.extractKoreanFromText(text);
+              korean.forEach(koreanText => {
+                extractions.push({
+                  text: koreanText,
+                  location: {
+                    section,
+                    line: lineNumber,
+                    column: line.indexOf(match),
+                  },
+                  context: {
+                    elementType: undefined,
+                    attributeType: undefined,
+                    variableContext: 'array',
+                  }
+                });
+              });
+            }
           });
         }
       });

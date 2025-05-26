@@ -254,7 +254,7 @@ export class ProcessKoreanReplacementTool extends BaseTool {
   }
 
   /**
-   * 추천사항 생성
+   * 추천사항 생성 (개선된 버전 - 매칭/미매칭 단어 명확히 구분)
    */
   private generateRecommendations(
     extractions: { vue?: VueKoreanExtraction[]; js?: JSKoreanExtraction[] },
@@ -264,117 +264,151 @@ export class ProcessKoreanReplacementTool extends BaseTool {
   ): string[] {
     const recommendations: string[] = [];
 
-    // Vue 파일 추천사항 + 실제 변환 예시
-    if (extractions.vue && extractions.vue.length > 0) {
-      const templateExtractions = extractions.vue.filter(e => e.location.section === 'template');
-      const scriptExtractions = extractions.vue.filter(e => e.location.section === 'script');
-
-      if (templateExtractions.length > 0) {
-        recommendations.push(`Template 섹션에서 ${templateExtractions.length}개 한글 텍스트 발견`);
-        
-        // 실제 변환 예시 추가
-        const templateExample = templateExtractions[0];
-        const matchedKey = this.findMatchedKey(templateExample.text, translationMatches);
-        const exampleKey = matchedKey || 'EXAMPLE.KEY';
-        
-        const conversionExample = matchedKey 
-          ? this.generateConversionExample(templateExample.text, matchedKey, `{{ ${this.i18nConfig.vue.template}`)
-          : `"${templateExample.text}" → {{ ${this.i18nConfig.vue.template}('${exampleKey}') }}`;
-        
-        recommendations.push(`📝 변환 예시: ${conversionExample}`);
-        
-        if (templateExtractions.length > 1) {
-          recommendations.push(`📋 모든 template 한글 텍스트는 {{ ${this.i18nConfig.vue.template}('key') }} 형태로 변환해주세요`);
-        }
-      }
-
-      if (scriptExtractions.length > 0) {
-        recommendations.push(`Script 섹션에서 ${scriptExtractions.length}개 한글 텍스트 발견`);
-        
-        // 실제 변환 예시 추가
-        const scriptExample = scriptExtractions[0];
-        const matchedKey = this.findMatchedKey(scriptExample.text, translationMatches);
-        const exampleKey = matchedKey || 'EXAMPLE.KEY';
-        
-        const conversionExample = matchedKey 
-          ? this.generateConversionExample(scriptExample.text, matchedKey, this.i18nConfig.vue.script)
-          : `"${scriptExample.text}" → ${this.i18nConfig.vue.script}('${exampleKey}')`;
-        
-        recommendations.push(`📝 변환 예시: ${conversionExample}`);
-        
-        if (scriptExtractions.length > 1) {
-          recommendations.push(`📋 모든 script 한글 텍스트는 ${this.i18nConfig.vue.script}('key') 형태로 변환해주세요`);
-        }
-      }
+    // 전체 한글 텍스트 추출
+    const allKoreanTexts = this.extractAllKoreanTexts(extractions);
+    
+    if (allKoreanTexts.length === 0) {
+      recommendations.push('✅ 한글 텍스트가 발견되지 않았습니다. 파일이 이미 국제화되어 있거나 한글이 없는 파일입니다.');
+      return recommendations;
     }
 
-    // JS/TS 파일 추천사항 + 실제 변환 예시
-    if (extractions.js && extractions.js.length > 0) {
-      const stringExtractions = extractions.js.filter(e => e.context.literalType === 'string');
-      const templateExtractions = extractions.js.filter(e => e.context.literalType === 'template');
+    // === 📊 전체 분석 결과 요약 ===
+    recommendations.push(`📊 **분석 결과 요약**`);
+    recommendations.push(`- 발견된 한글 텍스트: ${allKoreanTexts.length}개`);
+    recommendations.push(`- 기존 번역과 매칭: ${translationMatches.length}개 (${Math.round((translationMatches.length / allKoreanTexts.length) * 100)}%)`);
+    recommendations.push(`- 새로운 번역 필요: ${unmatchedTexts.length}개`);
+    recommendations.push('');
 
-      if (stringExtractions.length > 0) {
-        recommendations.push(`문자열 리터럴 ${stringExtractions.length}개 발견`);
-        
-        // 실제 변환 예시 추가
-        const stringExample = stringExtractions[0];
-        const matchedKey = this.findMatchedKey(stringExample.text, translationMatches);
-        const exampleKey = matchedKey || 'EXAMPLE.KEY';
-        
-        const conversionExample = matchedKey 
-          ? this.generateConversionExample(stringExample.text, matchedKey, this.i18nConfig.javascript.function)
-          : `"${stringExample.text}" → ${this.i18nConfig.javascript.function}('${exampleKey}')`;
-        
-        recommendations.push(`📝 변환 예시: ${conversionExample}`);
-        
-        if (stringExtractions.length > 1) {
-          recommendations.push(`📋 모든 문자열은 ${this.i18nConfig.javascript.function}('key') 형태로 변환해주세요`);
-        }
-      }
-
-      if (templateExtractions.length > 0) {
-        recommendations.push(`템플릿 리터럴 ${templateExtractions.length}개 발견 - 템플릿 내 한글 부분만 선별 대체 예정`);
-      }
-    }
-
-    // 번역 매칭 결과 추가
+    // === ✅ 매칭된 번역 (대체 가능한 단어들) ===
     if (translationMatches.length > 0) {
-      recommendations.push(`✅ ${translationMatches.length}개 텍스트가 기존 번역과 매칭되었습니다`);
+      recommendations.push(`✅ **매칭된 번역 (${translationMatches.length}개)**`);
       
-      const highConfidenceMatches = translationMatches.filter(m => m.confidence >= 0.95);
-      if (highConfidenceMatches.length > 0) {
-        recommendations.push(`🎯 ${highConfidenceMatches.length}개는 정확한 매칭 - 바로 대체 가능`);
-        
-        // 매칭된 실제 예시 추가
-        const perfectMatch = highConfidenceMatches[0];
-        recommendations.push(`💡 매칭 예시: "${perfectMatch.korean}" → "${perfectMatch.keyPath}"`);
+      // 신뢰도별로 분류
+      const perfectMatches = translationMatches.filter(m => m.confidence >= 0.95);
+      const goodMatches = translationMatches.filter(m => m.confidence >= 0.8 && m.confidence < 0.95);
+      const partialMatches = translationMatches.filter(m => m.confidence < 0.8);
+
+      // 완전 매칭 (신뢰도 95% 이상)
+      if (perfectMatches.length > 0) {
+        recommendations.push(`🎯 **완전 매칭 (${perfectMatches.length}개)** - 바로 대체 가능:`);
+        perfectMatches.slice(0, 5).forEach((match, index) => {
+          recommendations.push(`${index + 1}. "${match.korean}" → ${match.keyPath}`);
+        });
+        if (perfectMatches.length > 5) {
+          recommendations.push(`   ... 외 ${perfectMatches.length - 5}개 더`);
+        }
+        recommendations.push('');
+      }
+
+      // 조합 매칭 (신뢰도 80-94%)
+      if (goodMatches.length > 0) {
+        recommendations.push(`🔗 **조합 매칭 (${goodMatches.length}개)** - 단어 조합으로 매칭:`);
+        goodMatches.slice(0, 3).forEach((match, index) => {
+          recommendations.push(`${index + 1}. "${match.korean}" → ${match.keyPath}`);
+        });
+        if (goodMatches.length > 3) {
+          recommendations.push(`   ... 외 ${goodMatches.length - 3}개 더`);
+        }
+        recommendations.push('');
+      }
+
+      // 부분 매칭 (신뢰도 80% 미만)
+      if (partialMatches.length > 0) {
+        recommendations.push(`⚡ **부분 매칭 (${partialMatches.length}개)** - 일부 단어만 매칭:`);
+        partialMatches.slice(0, 3).forEach((match, index) => {
+          recommendations.push(`${index + 1}. "${match.korean}" → ${match.keyPath}`);
+        });
+        if (partialMatches.length > 3) {
+          recommendations.push(`   ... 외 ${partialMatches.length - 3}개 더`);
+        }
+        recommendations.push('');
+      }
+
+      // 변환 예시 제공
+      const bestMatch = perfectMatches[0] || goodMatches[0] || partialMatches[0];
+      if (bestMatch) {
+        const sectionType = this.getTextSectionType(bestMatch.korean, extractions);
+        const functionName = this.getFunctionNameForSection(sectionType);
+        const conversionExample = this.generateConversionExample(bestMatch.korean, bestMatch.keyPath, functionName);
+        recommendations.push(`📝 **변환 예시**: ${conversionExample}`);
+        recommendations.push('');
       }
     }
 
+    // === ❌ 매칭되지 않은 텍스트 (새로운 번역 필요) ===
     if (unmatchedTexts.length > 0) {
-      recommendations.push(`❌ ${unmatchedTexts.length}개 텍스트는 새로운 번역이 필요합니다`);
+      recommendations.push(`❌ **새로운 번역이 필요한 텍스트 (${unmatchedTexts.length}개)**`);
+      recommendations.push(`다음 한글 텍스트들은 기존 번역 파일에 없어서 새로 추가해야 합니다:`);
+      recommendations.push('');
+      
+      unmatchedTexts.forEach((text, index) => {
+        const sectionInfo = this.getTextLocationInfo(text, extractions);
+        recommendations.push(`${index + 1}. "${text}" ${sectionInfo}`);
+      });
+      recommendations.push('');
+      
+      recommendations.push(`💡 **추천 작업 순서**:`);
+      recommendations.push(`1. 위 ${unmatchedTexts.length}개 텍스트를 ko.js, en.js에 추가`);
+      recommendations.push(`2. 매칭된 ${translationMatches.length}개 텍스트를 i18n 함수로 대체`);
+      recommendations.push(`3. 전체 파일 재검토 및 테스트`);
+      recommendations.push('');
     }
 
-    // 중요한 함수 설정 안내 추가
-    recommendations.push(`⚙️ 현재 i18n 함수 설정: Template(${this.i18nConfig.vue.template}), Script(${this.i18nConfig.vue.script}), JS(${this.i18nConfig.javascript.function})`);
-
-    // 일반적인 추천사항
-    if (extractions.vue?.length === 0 && extractions.js?.length === 0) {
-      recommendations.push('한글 텍스트가 발견되지 않았습니다. 파일이 이미 국제화되어 있거나 한글이 없는 파일입니다.');
-    }
+    // === ⚙️ 기술 정보 ===
+    recommendations.push(`⚙️ **현재 i18n 설정**`);
+    recommendations.push(`- Template: {{ ${this.i18nConfig.vue.template}('key') }}`);
+    recommendations.push(`- Script: ${this.i18nConfig.vue.script}('key')`);
+    recommendations.push(`- JavaScript: ${this.i18nConfig.javascript.function}('key')`);
 
     return recommendations;
   }
 
   /**
-   * 매칭된 키 찾기 헬퍼 메서드
+   * 텍스트가 어느 섹션에 있는지 확인
    */
-  private findMatchedKey(koreanText: string, translationMatches: TranslationMatch[]): string | null {
-    const match = translationMatches.find(m => m.korean === koreanText);
-    if (!match) return null;
+  private getTextSectionType(text: string, extractions: { vue?: VueKoreanExtraction[]; js?: JSKoreanExtraction[] }): 'template' | 'script' | 'javascript' {
+    if (extractions.vue) {
+      const vueMatch = extractions.vue.find(e => e.text === text);
+      if (vueMatch) {
+        return vueMatch.location.section === 'template' ? 'template' : 'script';
+      }
+    }
+    return 'javascript';
+  }
+
+  /**
+   * 섹션 타입에 따른 함수명 반환
+   */
+  private getFunctionNameForSection(sectionType: 'template' | 'script' | 'javascript'): string {
+    switch (sectionType) {
+      case 'template':
+        return `{{ ${this.i18nConfig.vue.template}`;
+      case 'script':
+        return this.i18nConfig.vue.script;
+      case 'javascript':
+        return this.i18nConfig.javascript.function;
+    }
+  }
+
+  /**
+   * 텍스트의 위치 정보 반환
+   */
+  private getTextLocationInfo(text: string, extractions: { vue?: VueKoreanExtraction[]; js?: JSKoreanExtraction[] }): string {
+    if (extractions.vue) {
+      const vueMatch = extractions.vue.find(e => e.text === text);
+      if (vueMatch) {
+        return `(${vueMatch.location.section} 섹션, 라인 ${vueMatch.location.line})`;
+      }
+    }
     
-    // 배열 형태의 키든 단일 키든 그대로 반환
-    return match.keyPath;
+    if (extractions.js) {
+      const jsMatch = extractions.js.find(e => e.text === text);
+      if (jsMatch) {
+        return `(라인 ${jsMatch.location.line}, ${jsMatch.context.literalType})`;
+      }
+    }
+    
+    return '';
   }
 
   /**
