@@ -373,13 +373,7 @@ export class ProcessKoreanReplacementTool extends BaseTool {
     const match = translationMatches.find(m => m.korean === koreanText);
     if (!match) return null;
     
-    // 배열 형태의 키인지 확인
-    if (match.keyPath.startsWith('[') && match.keyPath.endsWith(']')) {
-      // 배열 형태 키를 올바른 함수 호출 형태로 변환
-      const keyArray = match.keyPath.slice(1, -1); // [ ] 제거
-      return keyArray; // 배열 내용 그대로 반환
-    }
-    
+    // 배열 형태의 키든 단일 키든 그대로 반환
     return match.keyPath;
   }
 
@@ -390,9 +384,21 @@ export class ProcessKoreanReplacementTool extends BaseTool {
     // Vue template 함수인지 확인 ({{ 로 시작하는 경우)
     const isTemplate = functionName.startsWith('{{');
     
-    // 배열 형태 키인지 확인
-    if (keyPath.includes(',')) {
-      // 여러 키가 있는 경우 배열 형태로 변환
+    // 배열 형태 키인지 확인 ([로 시작하고 ]로 끝나는 경우)
+    if (keyPath.startsWith('[') && keyPath.endsWith(']')) {
+      // 배열 내용 추출 및 개별 키를 따옴표로 감싸기
+      const arrayContent = keyPath.slice(1, -1); // [ ] 제거
+      const keys = arrayContent.split(', ').map(key => key.trim());
+      const quotedKeys = keys.map(key => `'${key}'`).join(', ');
+      
+      if (isTemplate) {
+        const cleanFunctionName = functionName.replace('{{ ', '');
+        return `"${text}" → {{ ${cleanFunctionName}([${quotedKeys}]) }}`;
+      } else {
+        return `"${text}" → ${functionName}([${quotedKeys}])`;
+      }
+    } else if (keyPath.includes(',')) {
+      // 쉼표가 있지만 대괄호가 없는 경우 (기존 로직 유지)
       if (isTemplate) {
         const cleanFunctionName = functionName.replace('{{ ', '');
         return `"${text}" → {{ ${cleanFunctionName}([${keyPath}]) }}`;

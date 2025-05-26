@@ -1,10 +1,9 @@
 /**
- * 번역 매칭 서비스 - RFP 3단계 구현
- * 기존 ko.js, en.js 파일에서 한글 텍스트와 매칭되는 키를 찾습니다
+ * 번역 매칭 서비스 - 최적화된 버전
+ * 대용량 파일에서 WATCHALL.WORD 부분만 추출하여 빠른 검색 제공
  */
 
 import fs from 'fs-extra';
-import path from 'path';
 import { MCPServerConfig } from '../types/index.js';
 
 export interface TranslationMatch {
@@ -15,17 +14,18 @@ export interface TranslationMatch {
 }
 
 /**
- * 번역 매칭 서비스 클래스
+ * 최적화된 번역 매칭 서비스 클래스
  */
 export class TranslationMatcherService {
-  private koTranslations: any = {};
-  private enTranslations: any = {};
+  private koWordIndex: Map<string, string> = new Map(); // 한글 → 키경로
+  private enWordIndex: Map<string, string> = new Map(); // 키경로 → 영문
+  private lastModified: Map<string, number> = new Map(); // 파일 → 수정시간
   private loaded = false;
 
   constructor(private config: MCPServerConfig) {}
 
   /**
-   * 언어 파일들을 로드합니다
+   * 언어 파일들을 최적화된 방식으로 로드합니다
    */
   async loadTranslations(): Promise<void> {
     try {
@@ -36,59 +36,191 @@ export class TranslationMatcherService {
       console.error(`  - ko.js: ${koPath}`);
       console.error(`  - en.js: ${enPath}`);
 
-      // ko.js 파일 로드
+      // ko.js 파일 로드 및 인덱싱
       if (await fs.pathExists(koPath)) {
-        const koContent = await fs.readFile(koPath, 'utf-8');
-        this.koTranslations = this.parseJSFile(koContent);
-        console.error(`✅ ko.js 로드 성공: ${Object.keys(this.koTranslations).length}개 최상위 키`);
+        if (await this.needsReload(koPath, 'ko')) {
+          const koWordSection = await this.extractWordSection(koPath);
+          this.koWordIndex = this.buildKoreanIndex(koWordSection);
+          await this.updateLastModified(koPath, 'ko');
+          console.error(`✅ ko.js 최적화 로드 성공: ${this.koWordIndex.size}개 단어`);
+        } else {
+          console.error(`📋 ko.js 캐시 사용: ${this.koWordIndex.size}개 단어`);
+        }
       } else {
         console.error(`❌ ko.js 파일을 찾을 수 없습니다: ${koPath}`);
       }
 
-      // en.js 파일 로드
+      // en.js 파일 로드 및 인덱싱
       if (await fs.pathExists(enPath)) {
-        const enContent = await fs.readFile(enPath, 'utf-8');
-        this.enTranslations = this.parseJSFile(enContent);
-        console.error(`✅ en.js 로드 성공: ${Object.keys(this.enTranslations).length}개 최상위 키`);
+        if (await this.needsReload(enPath, 'en')) {
+          const enWordSection = await this.extractWordSection(enPath);
+          this.enWordIndex = this.buildEnglishIndex(enWordSection);
+          await this.updateLastModified(enPath, 'en');
+          console.error(`✅ en.js 최적화 로드 성공: ${this.enWordIndex.size}개 단어`);
+        } else {
+          console.error(`📋 en.js 캐시 사용: ${this.enWordIndex.size}개 단어`);
+        }
       } else {
         console.error(`❌ en.js 파일을 찾을 수 없습니다: ${enPath}`);
       }
 
       this.loaded = true;
+      console.error(`✅ 최적화된 번역 파일 로드 완료: ko=${this.koWordIndex.size}, en=${this.enWordIndex.size}`);
       
-      // 사용 가능한 키 확인
-      const availableKeys = this.getAvailableKeys();
-      console.error(`✅ 번역 파일 로드 완료: ko=${Object.keys(this.koTranslations).length}, en=${Object.keys(this.enTranslations).length}`);
-      console.error(`✅ 사용 가능한 번역 키: ${availableKeys.length}개`);
-      if (availableKeys.length > 0) {
-        console.error(`처음 5개: ${availableKeys.slice(0, 5).join(', ')}`);
-      }
     } catch (error) {
       console.error('❌ 번역 파일 로드 실패:', error);
     }
   }
 
   /**
-   * JS 파일 내용을 파싱하여 객체로 변환
+   * 파일에서 WATCHALL.WORD 섹션만 추출합니다
    */
-  private parseJSFile(content: string): any {
+  private async extractWordSection(filePath: string): Promise<any> {
     try {
-      // export default를 제거하고 객체만 추출
-      const cleanContent = content
-        .replace(/export\s+default\s+/, '')
-        .replace(/;?\s*$/, '');
+      const content = await fs.readFile(filePath, 'utf-8');
       
-      // eval을 사용하여 객체 파싱 (보안상 위험하지만 개발 환경에서 사용)
-      // 실제 프로덕션에서는 더 안전한 파서 사용 권장
-      return eval(`(${cleanContent})`);
+      // WATCHALL.WORD 섹션을 정규식으로 추출 (더 정교한 패턴)
+      const wordSectionRegex = /WORD:\s*\{([\s\S]*?)\n\s*\},?\s*\n/;
+      const match = content.match(wordSectionRegex);
+      
+      if (!match) {
+        console.error(`⚠️ WATCHALL.WORD 섹션을 찾을 수 없습니다: ${filePath}`);
+        return {};
+      }
+
+      // 추출된 WORD 섹션을 안전하게 파싱
+      const wordContent = `{${match[1]}}`;
+      
+      // 직접 eval 사용 (복잡한 구조이므로 JSON 변환 건너뛰기)
+      try {
+        console.error(`🔧 ${filePath} WORD 섹션 직접 파싱 시도...`);
+        return eval(`(${wordContent})`);
+      } catch (evalError) {
+        console.error(`❌ eval 파싱도 실패: ${evalError instanceof Error ? evalError.message : String(evalError)}`);
+        
+        // 마지막 시도: 더 간단한 정규식으로 키-값 쌍 추출
+        return this.parseWordSectionManually(wordContent);
+      }
+      
     } catch (error) {
-      console.error('JS 파일 파싱 오류:', error);
+      console.error(`❌ WORD 섹션 추출 실패 (${filePath}):`, error);
       return {};
     }
   }
 
   /**
-   * 한글 텍스트와 매칭되는 번역 키를 찾습니다
+   * 수동으로 WORD 섹션 파싱 (마지막 수단)
+   */
+  private parseWordSectionManually(content: string): any {
+    try {
+      const result: any = {};
+      
+      // 키: { ... } 패턴을 찾아서 파싱 (중첩 구조 고려)
+      const keyValueRegex = /([A-Z_0-9]+):\s*\{([\s\S]*?)\n\s*\},?/g;
+      let match;
+      
+      while ((match = keyValueRegex.exec(content)) !== null) {
+        const key = match[1];
+        const valueContent = match[2];
+        
+        // N: 'value' 패턴 찾기
+        const nValueMatch = valueContent.match(/N:\s*'([^']*)'|N:\s*"([^"]*)"/);
+        if (nValueMatch) {
+          const value = nValueMatch[1] || nValueMatch[2];
+          result[key] = { N: value };
+        } else {
+          // 단순 문자열 값인 경우
+          const simpleValueMatch = valueContent.match(/'([^']*)'|"([^"]*)"/);
+          if (simpleValueMatch) {
+            const value = simpleValueMatch[1] || simpleValueMatch[2];
+            result[key] = value;
+          }
+        }
+      }
+      
+      console.error(`🔧 수동 파싱 완료: ${Object.keys(result).length}개 키 추출`);
+      return result;
+      
+    } catch (error) {
+      console.error('수동 파싱 실패:', error);
+      return {};
+    }
+  }
+
+  /**
+   * 한글 인덱스 생성 (한글 값 → 키 경로)
+   */
+  private buildKoreanIndex(wordSection: any): Map<string, string> {
+    const index = new Map<string, string>();
+    
+    for (const [key, value] of Object.entries(wordSection)) {
+      if (typeof value === 'string') {
+        index.set(value, `WATCHALL.WORD.${key}`);
+      } else if (typeof value === 'object' && value !== null) {
+        // N, V 등의 하위 속성이 있는 경우
+        for (const [subKey, subValue] of Object.entries(value)) {
+          if (typeof subValue === 'string') {
+            index.set(subValue, `WATCHALL.WORD.${key}`);
+          }
+        }
+      }
+    }
+    
+    return index;
+  }
+
+  /**
+   * 영문 인덱스 생성 (키 경로 → 영문 값)
+   */
+  private buildEnglishIndex(wordSection: any): Map<string, string> {
+    const index = new Map<string, string>();
+    
+    for (const [key, value] of Object.entries(wordSection)) {
+      const keyPath = `WATCHALL.WORD.${key}`;
+      
+      if (typeof value === 'string') {
+        index.set(keyPath, value);
+      } else if (typeof value === 'object' && value !== null) {
+        // N 속성을 우선적으로 사용
+        const nValue = (value as any).N;
+        if (typeof nValue === 'string') {
+          index.set(keyPath, nValue);
+        }
+      }
+    }
+    
+    return index;
+  }
+
+  /**
+   * 파일 재로드가 필요한지 확인
+   */
+  private async needsReload(filePath: string, type: 'ko' | 'en'): Promise<boolean> {
+    try {
+      const stats = await fs.stat(filePath);
+      const cacheKey = `${type}_${filePath}`;
+      const lastMod = this.lastModified.get(cacheKey) || 0;
+      return stats.mtime.getTime() > lastMod;
+    } catch (error) {
+      return true; // 오류 시 재로드
+    }
+  }
+
+  /**
+   * 파일 수정시간 업데이트
+   */
+  private async updateLastModified(filePath: string, type: 'ko' | 'en'): Promise<void> {
+    try {
+      const stats = await fs.stat(filePath);
+      const cacheKey = `${type}_${filePath}`;
+      this.lastModified.set(cacheKey, stats.mtime.getTime());
+    } catch (error) {
+      console.error(`파일 수정시간 업데이트 실패: ${filePath}`, error);
+    }
+  }
+
+  /**
+   * 한글 텍스트와 매칭되는 번역 키를 찾습니다 (최적화된 버전)
    */
   async findMatches(koreanTexts: string[]): Promise<TranslationMatch[]> {
     if (!this.loaded) {
@@ -96,25 +228,23 @@ export class TranslationMatcherService {
     }
 
     const matches: TranslationMatch[] = [];
-    const wordSection = this.koTranslations?.WATCHALL?.WORD || {};
-    const enWordSection = this.enTranslations?.WATCHALL?.WORD || {};
 
     for (const koreanText of koreanTexts) {
-      // 1. 먼저 전체 텍스트로 정확한 매칭 시도
-      const exactMatch = this.findKeyByValue(wordSection, koreanText, 'WATCHALL.WORD');
+      // 1. 먼저 직접 매칭 시도 (O(1) 검색)
+      const directMatch = this.koWordIndex.get(koreanText);
       
-      if (exactMatch) {
-        const englishValue = this.getValueByPath(enWordSection, exactMatch.relativePath);
+      if (directMatch) {
+        const englishValue = this.enWordIndex.get(directMatch) || '';
         
         matches.push({
           korean: koreanText,
-          english: englishValue || '',
-          keyPath: exactMatch.fullPath,
-          confidence: this.calculateConfidence(koreanText, exactMatch.foundValue)
+          english: englishValue,
+          keyPath: directMatch,
+          confidence: 1.0
         });
       } else {
-        // 2. 전체 매칭이 실패하면 공백으로 분리하여 개별 단어 매칭 시도
-        const wordMatch = this.findWordCombinationMatch(koreanText, wordSection, enWordSection);
+        // 2. 직접 매칭 실패 시 공백 분리 매칭 시도
+        const wordMatch = this.findWordCombinationMatch(koreanText);
         if (wordMatch) {
           matches.push(wordMatch);
         }
@@ -125,26 +255,22 @@ export class TranslationMatcherService {
   }
 
   /**
-   * 공백으로 분리된 단어들을 개별 매칭하여 조합 키 생성
+   * 공백으로 분리된 단어들을 개별 매칭하여 조합 키 생성 (최적화된 버전)
    */
-  private findWordCombinationMatch(
-    koreanText: string, 
-    wordSection: any, 
-    enWordSection: any
-  ): TranslationMatch | null {
+  private findWordCombinationMatch(koreanText: string): TranslationMatch | null {
     // 공백으로 단어 분리
     const words = koreanText.split(' ').filter(word => word.trim().length > 0);
     
     // 단어가 하나뿐이면 개별 매칭 시도
     if (words.length === 1) {
-      const match = this.findKeyByValue(wordSection, words[0], 'WATCHALL.WORD');
-      if (match) {
-        const englishValue = this.getValueByPath(enWordSection, match.relativePath);
+      const keyPath = this.koWordIndex.get(words[0]);
+      if (keyPath) {
+        const englishValue = this.enWordIndex.get(keyPath) || '';
         return {
           korean: koreanText,
-          english: englishValue || '',
-          keyPath: match.fullPath,
-          confidence: this.calculateConfidence(koreanText, match.foundValue)
+          english: englishValue,
+          keyPath: keyPath,
+          confidence: 1.0
         };
       }
       return null;
@@ -154,13 +280,13 @@ export class TranslationMatcherService {
     const matchedWords: Array<{korean: string, keyPath: string, english: string}> = [];
     
     for (const word of words) {
-      const match = this.findKeyByValue(wordSection, word, 'WATCHALL.WORD');
-      if (match) {
-        const englishValue = this.getValueByPath(enWordSection, match.relativePath);
+      const keyPath = this.koWordIndex.get(word);
+      if (keyPath) {
+        const englishValue = this.enWordIndex.get(keyPath) || '';
         matchedWords.push({
           korean: word,
-          keyPath: match.fullPath,
-          english: englishValue || ''
+          keyPath: keyPath,
+          english: englishValue
         });
       }
     }
@@ -196,110 +322,10 @@ export class TranslationMatcherService {
   }
 
   /**
-   * 객체에서 값으로 키 경로를 찾습니다
-   */
-  private findKeyByValue(
-    obj: any, 
-    targetValue: string, 
-    currentPath: string = ''
-  ): { fullPath: string; relativePath: string; foundValue: string } | null {
-    for (const [key, value] of Object.entries(obj)) {
-      const newPath = currentPath ? `${currentPath}.${key}` : key;
-      
-      if (typeof value === 'string') {
-        if (this.isMatch(value, targetValue)) {
-          return {
-            fullPath: newPath,
-            relativePath: key,
-            foundValue: value
-          };
-        }
-      } else if (typeof value === 'object' && value !== null) {
-        const result = this.findKeyByValue(value, targetValue, newPath);
-        if (result) {
-          return result;
-        }
-      }
-    }
-    
-    return null;
-  }
-
-  /**
-   * 경로로 값을 가져옵니다
-   */
-  private getValueByPath(obj: any, path: string): string {
-    const keys = path.split('.');
-    let current = obj;
-    
-    for (const key of keys) {
-      if (current && typeof current === 'object' && key in current) {
-        current = current[key];
-      } else {
-        return '';
-      }
-    }
-    
-    return typeof current === 'string' ? current : '';
-  }
-
-  /**
-   * 두 문자열이 매칭되는지 확인
-   */
-  private isMatch(value: string, target: string): boolean {
-    // 정확한 매치만 허용
-    if (value === target) return true;
-    
-    // 공백 제거 후 매치
-    if (value.replace(/\s/g, '') === target.replace(/\s/g, '')) return true;
-    
-    // 부분 매치는 공백 분리 매칭에서 처리하므로 여기서는 비활성화
-    // if (target.length >= 3 && value.includes(target)) return true;
-    // if (target.length >= 3 && target.includes(value)) return true;
-    
-    return false;
-  }
-
-  /**
-   * 매칭 신뢰도 계산
-   */
-  private calculateConfidence(target: string, found: string): number {
-    if (target === found) return 1.0;
-    if (target.replace(/\s/g, '') === found.replace(/\s/g, '')) return 0.95;
-    
-    const longer = target.length > found.length ? target : found;
-    const shorter = target.length > found.length ? found : target;
-    
-    if (longer.includes(shorter)) {
-      return shorter.length / longer.length;
-    }
-    
-    return 0.7; // 기본 부분 매치 신뢰도
-  }
-
-  /**
-   * 사용 가능한 모든 번역 키 목록을 반환
+   * 사용 가능한 모든 번역 키 목록을 반환 (최적화된 버전)
    */
   getAvailableKeys(): string[] {
-    const keys: string[] = [];
-    
-    const collectKeys = (obj: any, prefix: string = '') => {
-      for (const [key, value] of Object.entries(obj)) {
-        const fullKey = prefix ? `${prefix}.${key}` : key;
-        
-        if (typeof value === 'string') {
-          keys.push(fullKey);
-        } else if (typeof value === 'object' && value !== null) {
-          collectKeys(value, fullKey);
-        }
-      }
-    };
-    
-    if (this.koTranslations?.WATCHALL?.WORD) {
-      collectKeys(this.koTranslations.WATCHALL.WORD, 'WATCHALL.WORD');
-    }
-    
-    return keys;
+    return Array.from(this.koWordIndex.values());
   }
 
   /**
@@ -311,6 +337,4 @@ export class TranslationMatcherService {
     
     return koreanTexts.filter(text => !matchedTexts.has(text));
   }
-
-
 } 
