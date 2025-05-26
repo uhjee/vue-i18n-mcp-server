@@ -255,15 +255,15 @@ export class TranslationMatcherService {
   }
 
   /**
-   * 공백으로 분리된 단어들을 개별 매칭하여 조합 키 생성 (부분 매칭 지원)
+   * 공백이나 특수문자로 분리된 단어들을 개별 매칭하여 조합 키 생성 (부분 매칭 지원)
    */
   private findWordCombinationMatch(koreanText: string): TranslationMatch | null {
-    // 공백으로 단어 분리
-    const words = koreanText.split(' ').filter(word => word.trim().length > 0);
+    // 특수문자와 공백으로 분리 (특수문자는 별도 요소로 유지)
+    const parts = koreanText.split(/(\s+|[\/\-&+|])/).filter(part => part.trim().length > 0);
     
-    // 단어가 하나뿐이면 개별 매칭 시도
-    if (words.length === 1) {
-      const keyPath = this.koWordIndex.get(words[0]);
+    // 단순 단어가 하나뿐이면 개별 매칭 시도
+    if (parts.length === 1) {
+      const keyPath = this.koWordIndex.get(parts[0]);
       if (keyPath) {
         const englishValue = this.enWordIndex.get(keyPath) || '';
         return {
@@ -276,44 +276,85 @@ export class TranslationMatcherService {
       return null;
     }
 
-    // 여러 단어인 경우 개별 매칭 후 배열 형태로 키 생성
-    const processedWords: Array<{korean: string, keyPath: string, english: string, isMatched: boolean}> = [];
+    // 여러 요소인 경우 개별 매칭 후 배열 형태로 키 생성
+    const processedParts: Array<{
+      original: string, 
+      keyPath: string, 
+      english: string, 
+      isMatched: boolean,
+      isSpecialChar: boolean
+    }> = [];
     let matchedCount = 0;
     
-    for (const word of words) {
-      const keyPath = this.koWordIndex.get(word);
-      if (keyPath) {
-        const englishValue = this.enWordIndex.get(keyPath) || '';
-        processedWords.push({
-          korean: word,
-          keyPath: keyPath,
-          english: englishValue,
-          isMatched: true
+    for (const part of parts) {
+      const trimmedPart = part.trim();
+      
+      // 특수문자인지 확인 (공백 제외)
+      if (/^[\/\-&+|]$/.test(trimmedPart)) {
+        // 특수문자는 그대로 유지
+        processedParts.push({
+          original: trimmedPart,
+          keyPath: `'${trimmedPart}'`,
+          english: trimmedPart,
+          isMatched: false,
+          isSpecialChar: true
         });
-        matchedCount++;
-      } else {
-        // 매칭되지 않은 단어는 한글 그대로 유지
-        processedWords.push({
-          korean: word,
-          keyPath: `'${word}'`, // 한글 그대로 따옴표로 감싸기
-          english: word,
-          isMatched: false
-        });
+      } else if (trimmedPart.length > 0) {
+        // 한글 단어인 경우 번역 키 찾기
+        const keyPath = this.koWordIndex.get(trimmedPart);
+        if (keyPath) {
+          const englishValue = this.enWordIndex.get(keyPath) || '';
+          processedParts.push({
+            original: trimmedPart,
+            keyPath: keyPath,
+            english: englishValue,
+            isMatched: true,
+            isSpecialChar: false
+          });
+          matchedCount++;
+        } else {
+          // 매칭되지 않은 한글은 그대로 유지
+          processedParts.push({
+            original: trimmedPart,
+            keyPath: `'${trimmedPart}'`,
+            english: trimmedPart,
+            isMatched: false,
+            isSpecialChar: false
+          });
+        }
       }
     }
 
-    // 최소 하나 이상의 단어가 매칭되었으면 결과 생성
-    if (matchedCount > 0) {
-      const keyPaths = processedWords.map(w => w.keyPath);
-      const combinedEnglish = processedWords.map(w => w.english).join(' ');
+    // 특수문자가 포함되어 있거나 최소 하나 이상의 단어가 매칭되었으면 결과 생성
+    const hasSpecialChar = processedParts.some(p => p.isSpecialChar);
+    const hasMatchedWord = matchedCount > 0;
+    
+    if (hasSpecialChar || hasMatchedWord) {
+      const keyPaths = processedParts.map(p => p.keyPath);
+      const combinedEnglish = processedParts.map(p => p.english).join('');
       
-      // 신뢰도 계산: 매칭된 단어 비율
-      const confidence = matchedCount === words.length ? 0.8 : 0.6;
+      // 신뢰도 계산
+      let confidence = 0.5; // 기본값
+      if (hasSpecialChar) {
+        // 특수문자가 있으면서 일부 단어가 매칭된 경우
+        const totalWords = processedParts.filter(p => !p.isSpecialChar).length;
+        if (totalWords > 0) {
+          confidence = 0.7 + (matchedCount / totalWords) * 0.2; // 0.7~0.9
+        } else {
+          confidence = 0.6; // 특수문자만 있는 경우
+        }
+      } else if (matchedCount === processedParts.length) {
+        // 모든 단어가 매칭된 경우
+        confidence = 0.8;
+      } else if (matchedCount > 0) {
+        // 일부 단어만 매칭된 경우
+        confidence = 0.6;
+      }
       
       return {
         korean: koreanText,
         english: combinedEnglish,
-        keyPath: `[${keyPaths.join(', ')}]`, // 배열 형태로 키 표현 (한글과 i18n 키 혼합)
+        keyPath: `[${keyPaths.join(', ')}]`, // 배열 형태로 키 표현
         confidence: confidence
       };
     }

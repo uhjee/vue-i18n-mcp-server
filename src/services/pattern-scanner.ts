@@ -12,7 +12,7 @@ import { VueKoreanExtraction, JSKoreanExtraction } from '../types/index.js';
  * 패턴 스캔 엔진 클래스
  */
 export class PatternScannerService {
-  private readonly koreanRegex = /[가-힣][가-힣\s\d\.,!?\-~()]*[가-힣\d]/g;
+  private readonly koreanRegex = /[가-힣][가-힣\s\d\.,!?\-~()\/&+|]*[가-힣\d]/g;
   private readonly excludeRegex = /^[a-zA-Z0-9\._@\-\/\\:]+$/;
 
   /**
