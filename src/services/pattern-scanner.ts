@@ -179,6 +179,58 @@ export class PatternScannerService {
           }
         });
       });
+      
+      // 추가: 함수 호출에서 한글 추출 (예: @click="handleSave('데이터 저장')")
+      const functionCallMatches = line.match(/@\w+="[^"]*\([^)]*['"`]([^'"`]*[가-힣][^'"`]*)['"`][^)]*\)"/g);
+      if (functionCallMatches) {
+        functionCallMatches.forEach(match => {
+          const textMatch = match.match(/['"`]([^'"`]*[가-힣][^'"`]*)['"`]/);
+          if (textMatch) {
+            const korean = this.extractKoreanFromText(textMatch[1]);
+            korean.forEach(koreanText => {
+              extractions.push({
+                text: koreanText,
+                location: {
+                  section: 'template',
+                  line: lineNumber,
+                  column: line.indexOf(match),
+                },
+                context: {
+                  elementType: this.getElementType(line, line.indexOf(match)),
+                  attributeType: 'event-function',
+                  variableContext: undefined,
+                }
+              });
+            });
+          }
+        });
+      }
+      
+      // 추가: v-bind와 v-on 전체 형태에서 한글 추출
+      const vDirectiveMatches = line.match(/v-(?:bind|on):\w+="([^"]*[가-힣][^"]*)"/g);
+      if (vDirectiveMatches) {
+        vDirectiveMatches.forEach(match => {
+          const textMatch = match.match(/"([^"]*[가-힣][^"]*)"/);
+          if (textMatch) {
+            const korean = this.extractKoreanFromText(textMatch[1]);
+            korean.forEach(koreanText => {
+              extractions.push({
+                text: koreanText,
+                location: {
+                  section: 'template',
+                  line: lineNumber,
+                  column: line.indexOf(match),
+                },
+                context: {
+                  elementType: this.getElementType(line, line.indexOf(match)),
+                  attributeType: 'v-directive',
+                  variableContext: undefined,
+                }
+              });
+            });
+          }
+        });
+      }
     });
 
     return extractions;
@@ -380,6 +432,84 @@ export class PatternScannerService {
             }
           });
         }
+
+        // 8. 삼항 연산자에서 한글 추출 (condition ? '값1' : '값2')
+        const ternaryRegex = /\?\s*['"`]([^'"`]*[가-힣][^'"`]*)['"`]\s*:\s*['"`]([^'"`]*[가-힣][^'"`]*)['"`]/g;
+        let ternaryMatch: RegExpExecArray | null;
+        while ((ternaryMatch = ternaryRegex.exec(line)) !== null) {
+          // 첫 번째 값 (캡처 그룹 1)
+          if (ternaryMatch[1]) {
+            const korean = this.extractKoreanFromText(ternaryMatch[1]);
+            korean.forEach(koreanText => {
+              extractions.push({
+                text: koreanText,
+                location: {
+                  section,
+                  line: lineNumber,
+                  column: ternaryMatch!.index!,
+                },
+                context: {
+                  elementType: undefined,
+                  attributeType: undefined,
+                  variableContext: 'ternary-first',
+                }
+              });
+            });
+          }
+          
+          // 두 번째 값 (캡처 그룹 2)
+          if (ternaryMatch[2]) {
+            const korean = this.extractKoreanFromText(ternaryMatch[2]);
+            korean.forEach(koreanText => {
+              extractions.push({
+                text: koreanText,
+                location: {
+                  section,
+                  line: lineNumber,
+                  column: ternaryMatch!.index! + ternaryMatch![0].indexOf(ternaryMatch![2]),
+                },
+                context: {
+                  elementType: undefined,
+                  attributeType: undefined,
+                  variableContext: 'ternary-second',
+                }
+              });
+            });
+          }
+        }
+
+        // 9. 일반적인 문자열 리터럴 (위의 패턴들이 놓친 것들을 포괄적으로 잡기)
+        const generalStringMatches = line.match(/['"`]([^'"`]*[가-힣][^'"`]*)['"`]/g);
+        if (generalStringMatches) {
+          generalStringMatches.forEach(match => {
+            // 이미 위의 패턴들로 처리된 것들은 제외하기 위해 중복 체크
+            const text = match.slice(1, -1);
+            const korean = this.extractKoreanFromText(text);
+            korean.forEach(koreanText => {
+              // 이미 추가된 것인지 확인 (텍스트와 라인만 비교, 컬럼은 더 관대하게)
+              const alreadyExists = extractions.some(existing => 
+                existing.text === koreanText && 
+                existing.location.line === lineNumber
+              );
+              
+              if (!alreadyExists) {
+                extractions.push({
+                  text: koreanText,
+                  location: {
+                    section,
+                    line: lineNumber,
+                    column: line.indexOf(match),
+                  },
+                  context: {
+                    elementType: undefined,
+                    attributeType: undefined,
+                    variableContext: 'general',
+                  }
+                });
+              }
+            });
+          });
+        }
       });
 
     } catch (error) {
@@ -397,12 +527,30 @@ export class PatternScannerService {
       return [];
     }
 
-    const matches = text.match(this.koreanRegex);
-    if (!matches) return [];
+    // 한영 혼용 문자열 처리를 위한 개선된 로직
+    const results: string[] = [];
+    
+    // 1. 한글이 포함된 전체 텍스트를 우선 추출 (한영 혼용 지원)
+    if (/[가-힣]/.test(text)) {
+      // 한글과 영어가 모두 포함된 경우 전체 텍스트를 반환
+      if (/[A-Za-z]/.test(text)) {
+        const trimmedText = text.trim();
+        if (trimmedText.length > 0 && !this.isExcludedPattern(trimmedText)) {
+          results.push(trimmedText);
+        }
+      } else {
+        // 순수 한글인 경우 기존 로직 사용
+        const matches = text.match(this.koreanRegex);
+        if (matches) {
+          matches
+            .map(match => match.trim())
+            .filter(match => match.length > 0 && !this.isExcludedPattern(match))
+            .forEach(match => results.push(match));
+        }
+      }
+    }
 
-    return matches
-      .map(match => match.trim())
-      .filter(match => match.length > 0 && !this.isExcludedPattern(match));
+    return results;
   }
 
   /**
@@ -429,36 +577,30 @@ export class PatternScannerService {
    * 문장인지 판별
    */
   private isSentence(text: string): boolean {
-    // 문장 판별 기준들
+    // 문장 판별 기준들 (더 관대하게 수정)
     const sentenceIndicators = [
-      // 1. 문장 종결 어미
-      /[다요음니]$/,           // ~다, ~요, ~음, ~니 등으로 끝남
+      // 1. 명확한 문장 종결 어미
+      /습니다$|했습니다$|됩니다$|합니다$/,
       
       // 2. 물음표, 느낌표 포함
       /[?!]/, 
       
-      // 3. 조사가 포함된 긴 텍스트 (8글자 이상이면서 조사 포함)
-      text.length >= 8 && /[이가은는을를에서와과]/.test(text),
+      // 3. 매우 긴 설명문 (20글자 이상이면서 공백 포함)
+      text.length >= 20 && /\s/.test(text),
       
-      // 4. 서술형 표현
-      /입니다$|습니다$|했습니다$|됩니다$|합니다$/,
-      
-      // 5. 의문문 패턴
+      // 4. 의문문 패턴
       /까요\?$|세요\?$|나요\?$|어요\?$/,
       
-      // 6. 명령문 패턴
-      /세요$|하세요$|해주세요$|십시오$/,
+      // 5. 명령문 패턴 (긴 것만)
+      /해주세요$|하십시오$/,
       
-      // 7. 접속사나 부사로 시작
-      /^(그런데|하지만|따라서|또한|만약|예를 들어|즉|결국)/,
+      // 6. 접속사나 부사로 시작하는 긴 문장
+      text.length >= 15 && /^(그런데|하지만|따라서|또한|만약|예를 들어|즉|결국)/.test(text),
       
-      // 8. 완전한 문장 형태 (주어+서술어)
-      /[이가은는].*[다요음니]$/,
+      // 7. 완전한 문장 형태 (주어+서술어, 긴 것만)
+      text.length >= 15 && /[이가은는].*[다요음니]$/.test(text),
       
-      // 9. 긴 설명문 (15글자 이상이면서 공백 포함)
-      text.length >= 15 && /\s/.test(text),
-      
-      // 10. 일반적인 문장 패턴들
+      // 8. 일반적인 긴 문장 패턴들
       /해야\s?합니다|할\s?수\s?있습니다|하지\s?마세요|하시겠습니까|하고\s?싶습니다/,
     ];
 
@@ -489,7 +631,8 @@ export class PatternScannerService {
   private deduplicateExtractions(extractions: VueKoreanExtraction[]): VueKoreanExtraction[] {
     const seen = new Set<string>();
     return extractions.filter(extraction => {
-      const key = `${extraction.text}:${extraction.location.line}:${extraction.location.column}`;
+      // 텍스트와 라인만으로 중복 체크 (컬럼과 컨텍스트는 무시)
+      const key = `${extraction.text}:${extraction.location.line}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -529,10 +672,12 @@ export class PatternScannerService {
   private extractAttributeKorean(line: string): Array<{text: string, column: number, attributeType: string}> {
     // 속성값에서 한글 추출 로직
     const results: Array<{text: string, column: number, attributeType: string}> = [];
-    const regex = /(\w+)=["']([^"']*[가-힣][^"']*)["']/g;
+    
+    // 1. 일반 속성: attribute="값"
+    const normalAttrRegex = /(\w+)=["']([^"']*[가-힣][^"']*)["']/g;
     let match;
-
-    while ((match = regex.exec(line)) !== null) {
+    
+    while ((match = normalAttrRegex.exec(line)) !== null) {
       const korean = this.extractKoreanFromText(match[2]);
       korean.forEach(text => {
         results.push({
@@ -542,8 +687,86 @@ export class PatternScannerService {
         });
       });
     }
+    
+    // 2. Vue 바인딩 속성: :attribute="값" 또는 v-bind:attribute="값"
+    // 중첩된 따옴표 처리 개선
+    const bindingAttrRegex = /(?::|\bv-bind:)(\w+)=(["'])([^]*?)\2/g;
+    
+    while ((match = bindingAttrRegex.exec(line)) !== null) {
+      const attributeValue = match[3];
+      // 속성값에서 한글이 포함된 문자열 리터럴 찾기
+      const stringLiterals = this.extractStringLiteralsFromAttributeValue(attributeValue);
+      stringLiterals.forEach(literal => {
+        const korean = this.extractKoreanFromText(literal);
+        korean.forEach(text => {
+          results.push({
+            text,
+            column: match!.index,
+            attributeType: `:${match![1]}` // Vue 바인딩임을 표시
+          });
+        });
+      });
+    }
+    
+    // 3. Vue 이벤트 속성: @event="값" 또는 v-on:event="값"
+    const eventAttrRegex = /(?:@|\bv-on:)(\w+)=(["'])([^]*?)\2/g;
+    
+    while ((match = eventAttrRegex.exec(line)) !== null) {
+      const attributeValue = match[3];
+      const stringLiterals = this.extractStringLiteralsFromAttributeValue(attributeValue);
+      stringLiterals.forEach(literal => {
+        const korean = this.extractKoreanFromText(literal);
+        korean.forEach(text => {
+          results.push({
+            text,
+            column: match!.index,
+            attributeType: `@${match![1]}` // Vue 이벤트임을 표시
+          });
+        });
+      });
+    }
 
     return results;
+  }
+
+  /**
+   * 속성값에서 문자열 리터럴들을 추출하는 새 메서드
+   */
+  private extractStringLiteralsFromAttributeValue(value: string): string[] {
+    const literals: string[] = [];
+    
+    // 1. 작은따옴표 문자열: 'text'
+    const singleQuoteRegex = /'([^']*)'/g;
+    let match;
+    while ((match = singleQuoteRegex.exec(value)) !== null) {
+      if (/[가-힣]/.test(match[1])) {
+        literals.push(match[1]);
+      }
+    }
+    
+    // 2. 큰따옴표 문자열: "text"
+    const doubleQuoteRegex = /"([^"]*)"/g;
+    while ((match = doubleQuoteRegex.exec(value)) !== null) {
+      if (/[가-힣]/.test(match[1])) {
+        literals.push(match[1]);
+      }
+    }
+    
+    // 3. 백틱 템플릿 리터럴: `text`
+    const templateRegex = /`([^`]*)`/g;
+    while ((match = templateRegex.exec(value)) !== null) {
+      if (/[가-힣]/.test(match[1])) {
+        literals.push(match[1]);
+      }
+    }
+    
+    // 4. 따옴표가 없는 직접 한글 (드물지만 가능)
+    if (literals.length === 0 && /[가-힣]/.test(value)) {
+      const korean = this.extractKoreanFromText(value);
+      literals.push(...korean);
+    }
+    
+    return literals;
   }
 
   private getElementType(line: string, column: number): string {

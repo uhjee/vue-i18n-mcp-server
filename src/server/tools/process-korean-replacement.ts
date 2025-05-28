@@ -6,6 +6,7 @@
 import { BaseTool } from './base-tool.js';
 import { PatternScannerService } from '../../services/pattern-scanner.js';
 import { TranslationMatcherService, TranslationMatch } from '../../services/translation-matcher.js';
+import { MixedLanguageProcessor, MixedLanguageConversion } from '../../services/mixed-language-processor.js';
 import { ToolContext, VueKoreanExtraction, JSKoreanExtraction } from '../../types/index.js';
 import { DEFAULT_I18N_CONFIG, I18nFunctionConfig, VUE_I18N_CONFIGS } from '../../types/i18n-config.js';
 
@@ -13,6 +14,7 @@ interface ProcessKoreanReplacementInput {
   fileName: string;
   fileContent: string;
   fileType?: 'vue' | 'js' | 'ts';
+  forceWordDecomposition?: boolean;
 }
 
 interface ProcessKoreanReplacementResult {
@@ -26,6 +28,12 @@ interface ProcessKoreanReplacementResult {
       unmatchedTexts: number;
       matchRate: number;
     };
+    mixedLanguageResults?: {
+      totalMixed: number;
+      pureKorean: number;
+      pureEnglish: number;
+      averageConfidence: number;
+    };
   };
   extractions: {
     vue?: VueKoreanExtraction[];
@@ -33,6 +41,7 @@ interface ProcessKoreanReplacementResult {
   };
   translationMatches?: TranslationMatch[];
   unmatchedTexts?: string[];
+  mixedLanguageConversions?: MixedLanguageConversion[];
   recommendations: string[];
   nextSteps: string[];
 }
@@ -59,6 +68,10 @@ export class ProcessKoreanReplacementTool extends BaseTool {
         type: 'string',
         enum: ['vue', 'js', 'ts'],
         description: '파일 타입 (자동 감지되지만 명시적 지정 가능)',
+      },
+      forceWordDecomposition: {
+        type: 'boolean',
+        description: '강제 개별 단어 분해 옵션',
       }
     },
     required: ['fileName', 'fileContent']
@@ -66,12 +79,14 @@ export class ProcessKoreanReplacementTool extends BaseTool {
 
   private patternScanner: PatternScannerService;
   private translationMatcher: TranslationMatcherService;
+  private mixedLanguageProcessor: MixedLanguageProcessor;
   private i18nConfig: I18nFunctionConfig;
 
   constructor(context: ToolContext) {
     super(context);
     this.patternScanner = new PatternScannerService();
     this.translationMatcher = new TranslationMatcherService(context.config);
+    this.mixedLanguageProcessor = new MixedLanguageProcessor(this.translationMatcher);
     
     // i18n 함수 설정 (환경변수로 변경 가능)
     this.i18nConfig = this.getI18nConfig();
@@ -132,14 +147,59 @@ export class ProcessKoreanReplacementTool extends BaseTool {
       let unmatchedTexts: string[] = [];
       let matchingResults;
 
+      // 한영 혼용 처리 수행
+      let mixedLanguageConversions: MixedLanguageConversion[] = [];
+      let mixedLanguageResults;
+
       if (totalKoreanTexts > 0) {
         try {
-          console.error('🔍 기존 번역 매칭 시작...');
           const allKoreanTexts = this.extractAllKoreanTexts(extractions);
           
-          await this.translationMatcher.loadTranslations();
-          translationMatches = await this.translationMatcher.findMatches(allKoreanTexts);
-          unmatchedTexts = await this.translationMatcher.getUnmatchedTexts(allKoreanTexts);
+          // 강제 개별 단어 분해 옵션에 따라 처리 순서 변경
+          if (input.forceWordDecomposition) {
+            console.error('🔍 강제 개별 단어 분해 모드 - 개별 단어 분해 우선 실행...');
+            
+            // 개별 단어 분해를 먼저 수행
+            mixedLanguageConversions = await this.mixedLanguageProcessor.convertMultipleTexts(allKoreanTexts, true);
+            
+            const summary = this.mixedLanguageProcessor.summarizeConversions(mixedLanguageConversions);
+            mixedLanguageResults = {
+              totalMixed: summary.mixed,
+              pureKorean: summary.pureKorean,
+              pureEnglish: summary.pureEnglish,
+              averageConfidence: summary.averageConfidence
+            };
+            
+            console.error(`✅ 개별 단어 분해 완료: ${summary.mixed}개 혼용, ${summary.pureKorean}개 순수 한글, 평균 신뢰도 ${summary.averageConfidence}%`);
+            
+            // 기존 번역 매칭은 참고용으로만 수행
+            console.error('🔍 기존 번역 매칭 (참고용)...');
+            await this.translationMatcher.loadTranslations();
+            translationMatches = await this.translationMatcher.findMatches(allKoreanTexts);
+            unmatchedTexts = await this.translationMatcher.getUnmatchedTexts(allKoreanTexts);
+            
+          } else {
+            console.error('🔍 기존 번역 매칭 시작...');
+            await this.translationMatcher.loadTranslations();
+            translationMatches = await this.translationMatcher.findMatches(allKoreanTexts);
+            unmatchedTexts = await this.translationMatcher.getUnmatchedTexts(allKoreanTexts);
+            
+            console.error(`✅ 번역 매칭 완료: ${translationMatches.length}개 매칭, ${unmatchedTexts.length}개 미매칭`);
+
+            // 한영 혼용 처리 - 🎯 문장이 아닌 경우 자동으로 개별 단어 분해
+            console.error('🔍 한영 혼용 문자열 처리 시작...');
+            mixedLanguageConversions = await this.mixedLanguageProcessor.convertMultipleTexts(allKoreanTexts, false);
+            
+            const summary = this.mixedLanguageProcessor.summarizeConversions(mixedLanguageConversions);
+            mixedLanguageResults = {
+              totalMixed: summary.mixed,
+              pureKorean: summary.pureKorean,
+              pureEnglish: summary.pureEnglish,
+              averageConfidence: summary.averageConfidence
+            };
+
+            console.error(`✅ 한영 혼용 처리 완료: ${summary.mixed}개 혼용, ${summary.pureKorean}개 순수 한글, 평균 신뢰도 ${summary.averageConfidence}%`);
+          }
           
           const matchRate = allKoreanTexts.length > 0 
             ? (translationMatches.length / allKoreanTexts.length) * 100 
@@ -150,8 +210,7 @@ export class ProcessKoreanReplacementTool extends BaseTool {
             unmatchedTexts: unmatchedTexts.length,
             matchRate: Math.round(matchRate * 100) / 100
           };
-
-          console.error(`✅ 번역 매칭 완료: ${translationMatches.length}개 매칭, ${unmatchedTexts.length}개 미매칭`);
+          
         } catch (error) {
           console.error('⚠️ 번역 매칭 중 오류:', error);
         }
@@ -165,11 +224,13 @@ export class ProcessKoreanReplacementTool extends BaseTool {
           processingTime,
           fileType,
           matchingResults,
+          mixedLanguageResults,
         },
         extractions,
         translationMatches: translationMatches.length > 0 ? translationMatches : undefined,
         unmatchedTexts: unmatchedTexts.length > 0 ? unmatchedTexts : undefined,
-        recommendations: this.generateRecommendations(extractions, fileType, translationMatches, unmatchedTexts),
+        mixedLanguageConversions: mixedLanguageConversions.length > 0 ? mixedLanguageConversions : undefined,
+        recommendations: this.generateRecommendations(extractions, fileType, translationMatches, unmatchedTexts, mixedLanguageConversions, input.forceWordDecomposition),
         nextSteps: this.generateNextSteps(totalKoreanTexts, translationMatches.length),
       };
 
@@ -260,7 +321,9 @@ export class ProcessKoreanReplacementTool extends BaseTool {
     extractions: { vue?: VueKoreanExtraction[]; js?: JSKoreanExtraction[] },
     fileType: string,
     translationMatches: TranslationMatch[] = [],
-    unmatchedTexts: string[] = []
+    unmatchedTexts: string[] = [],
+    mixedLanguageConversions: MixedLanguageConversion[] = [],
+    forceWordDecomposition: boolean = false
   ): string[] {
     const recommendations: string[] = [];
 
@@ -275,63 +338,202 @@ export class ProcessKoreanReplacementTool extends BaseTool {
     // === 📊 전체 분석 결과 요약 ===
     recommendations.push(`📊 **분석 결과 요약**`);
     recommendations.push(`- 발견된 한글 텍스트: ${allKoreanTexts.length}개`);
-    recommendations.push(`- 기존 번역과 매칭: ${translationMatches.length}개 (${Math.round((translationMatches.length / allKoreanTexts.length) * 100)}%)`);
-    recommendations.push(`- 새로운 번역 필요: ${unmatchedTexts.length}개`);
+    
+    if (forceWordDecomposition) {
+      recommendations.push(`- 🎯 **강제 개별 단어 분해 모드 활성화**`);
+      recommendations.push(`- 개별 단어 분해 우선 처리: ${mixedLanguageConversions.length}개`);
+      recommendations.push(`- 기존 번역 매칭 (참고용): ${translationMatches.length}개`);
+    } else {
+      recommendations.push(`- 기존 번역과 매칭: ${translationMatches.length}개 (${Math.round((translationMatches.length / allKoreanTexts.length) * 100)}%)`);
+      recommendations.push(`- 새로운 번역 필요: ${unmatchedTexts.length}개`);
+    }
+    
+    // 한영 혼용 결과 추가
+    if (mixedLanguageConversions.length > 0) {
+      const summary = this.mixedLanguageProcessor.summarizeConversions(mixedLanguageConversions);
+      recommendations.push(`- 한영 혼용 문자열: ${summary.mixed}개`);
+      recommendations.push(`- 순수 한글: ${summary.pureKorean}개`);
+      recommendations.push(`- 평균 변환 신뢰도: ${summary.averageConfidence}%`);
+    }
     recommendations.push('');
 
-    // === ✅ 매칭된 번역 (대체 가능한 단어들) ===
-    if (translationMatches.length > 0) {
-      recommendations.push(`✅ **매칭된 번역 (${translationMatches.length}개)**`);
+    // 강제 개별 단어 분해 모드에서는 순서를 바꿔서 개별 분해 결과를 먼저 표시
+    if (forceWordDecomposition && mixedLanguageConversions.length > 0) {
+      // === 🎯 개별 단어 분해 결과 (우선 표시) ===
+      recommendations.push(`🎯 **개별 단어 분해 결과** (우선 모드)`);
+      recommendations.push(`모든 한글 텍스트를 개별 단어로 분해하여 처리합니다:`);
+      recommendations.push('');
       
       // 신뢰도별로 분류
-      const perfectMatches = translationMatches.filter(m => m.confidence >= 0.95);
-      const goodMatches = translationMatches.filter(m => m.confidence >= 0.8 && m.confidence < 0.95);
-      const partialMatches = translationMatches.filter(m => m.confidence < 0.8);
+      const highConfidence = mixedLanguageConversions.filter(c => c.confidence >= 70);
+      const mediumConfidence = mixedLanguageConversions.filter(c => c.confidence >= 40 && c.confidence < 70);
+      const lowConfidence = mixedLanguageConversions.filter(c => c.confidence < 40);
 
-      // 완전 매칭 (신뢰도 95% 이상)
-      if (perfectMatches.length > 0) {
-        recommendations.push(`🎯 **완전 매칭 (${perfectMatches.length}개)** - 바로 대체 가능:`);
-        perfectMatches.slice(0, 5).forEach((match, index) => {
-          recommendations.push(`${index + 1}. "${match.korean}" → ${match.keyPath}`);
+      if (highConfidence.length > 0) {
+        recommendations.push(`✅ **높은 신뢰도 (${highConfidence.length}개)** - 바로 적용 권장:`);
+        highConfidence.slice(0, 5).forEach((conv, index) => {
+          recommendations.push(`${index + 1}. "${conv.originalText}" → ${conv.finalConversion}`);
         });
-        if (perfectMatches.length > 5) {
-          recommendations.push(`   ... 외 ${perfectMatches.length - 5}개 더`);
+        if (highConfidence.length > 5) {
+          recommendations.push(`   ... 외 ${highConfidence.length - 5}개 더`);
         }
         recommendations.push('');
       }
 
-      // 조합 매칭 (신뢰도 80-94%)
-      if (goodMatches.length > 0) {
-        recommendations.push(`🔗 **조합 매칭 (${goodMatches.length}개)** - 단어 조합으로 매칭:`);
-        goodMatches.slice(0, 3).forEach((match, index) => {
-          recommendations.push(`${index + 1}. "${match.korean}" → ${match.keyPath}`);
+      if (mediumConfidence.length > 0) {
+        recommendations.push(`⚠️ **중간 신뢰도 (${mediumConfidence.length}개)** - 검토 후 적용:`);
+        mediumConfidence.slice(0, 5).forEach((conv, index) => {
+          recommendations.push(`${index + 1}. "${conv.originalText}" → ${conv.finalConversion}`);
         });
-        if (goodMatches.length > 3) {
-          recommendations.push(`   ... 외 ${goodMatches.length - 3}개 더`);
+        if (mediumConfidence.length > 5) {
+          recommendations.push(`   ... 외 ${mediumConfidence.length - 5}개 더`);
         }
         recommendations.push('');
       }
 
-      // 부분 매칭 (신뢰도 80% 미만)
-      if (partialMatches.length > 0) {
-        recommendations.push(`⚡ **부분 매칭 (${partialMatches.length}개)** - 일부 단어만 매칭:`);
-        partialMatches.slice(0, 3).forEach((match, index) => {
-          recommendations.push(`${index + 1}. "${match.korean}" → ${match.keyPath}`);
+      if (lowConfidence.length > 0) {
+        recommendations.push(`🔍 **낮은 신뢰도 (${lowConfidence.length}개)** - 수동 처리 또는 전체 키 매칭 고려:`);
+        lowConfidence.slice(0, 5).forEach((conv, index) => {
+          recommendations.push(`${index + 1}. "${conv.originalText}" → ${conv.finalConversion}`);
         });
-        if (partialMatches.length > 3) {
-          recommendations.push(`   ... 외 ${partialMatches.length - 3}개 더`);
+        if (lowConfidence.length > 5) {
+          recommendations.push(`   ... 외 ${lowConfidence.length - 5}개 더`);
         }
         recommendations.push('');
       }
 
-      // 변환 예시 제공
-      const bestMatch = perfectMatches[0] || goodMatches[0] || partialMatches[0];
-      if (bestMatch) {
-        const sectionType = this.getTextSectionType(bestMatch.korean, extractions);
-        const functionName = this.getFunctionNameForSection(sectionType);
-        const conversionExample = this.generateConversionExample(bestMatch.korean, bestMatch.keyPath, functionName);
-        recommendations.push(`📝 **변환 예시**: ${conversionExample}`);
+      // 기존 번역 매칭은 참고용으로 표시
+      if (translationMatches.length > 0) {
+        recommendations.push(`📋 **기존 번역 매칭 (참고용)**`);
+        recommendations.push(`다음은 기존 번역 파일에서 전체 매칭된 결과입니다:`);
         recommendations.push('');
+        
+        translationMatches.slice(0, 5).forEach((match, index) => {
+          recommendations.push(`${index + 1}. "${match.korean}" → ${match.keyPath} (${match.confidence}%)`);
+        });
+        if (translationMatches.length > 5) {
+          recommendations.push(`   ... 외 ${translationMatches.length - 5}개 더`);
+        }
+        recommendations.push('');
+        recommendations.push(`💡 **개별 분해 vs 전체 매칭 비교**: 개별 단어 분해가 더 유연하고 재사용 가능합니다.`);
+        recommendations.push('');
+      }
+    } else {
+      // 기존 로직 유지 (한영 혼용 결과 먼저, 그 다음 매칭 결과)
+
+      // === 🌐 한영 혼용 문자열 처리 결과 ===
+      if (mixedLanguageConversions.length > 0) {
+        const mixedTexts = mixedLanguageConversions.filter(c => c.analysis.isMixed);
+        
+        if (mixedTexts.length > 0) {
+          recommendations.push(`🌐 **한영 혼용 문자열 처리 (${mixedTexts.length}개)**`);
+          recommendations.push(`한글과 영어가 섞인 문자열들을 자동으로 분리하여 처리합니다:`);
+          recommendations.push('');
+          
+          // 신뢰도별로 분류
+          const highConfidence = mixedTexts.filter(c => c.confidence >= 70);
+          const mediumConfidence = mixedTexts.filter(c => c.confidence >= 40 && c.confidence < 70);
+          const lowConfidence = mixedTexts.filter(c => c.confidence < 40);
+
+          if (highConfidence.length > 0) {
+            recommendations.push(`✅ **높은 신뢰도 (${highConfidence.length}개)** - 바로 적용 가능:`);
+            highConfidence.slice(0, 3).forEach((conv, index) => {
+              recommendations.push(`${index + 1}. "${conv.originalText}" → ${conv.finalConversion}`);
+            });
+            if (highConfidence.length > 3) {
+              recommendations.push(`   ... 외 ${highConfidence.length - 3}개 더`);
+            }
+            recommendations.push('');
+          }
+
+          if (mediumConfidence.length > 0) {
+            recommendations.push(`⚠️ **중간 신뢰도 (${mediumConfidence.length}개)** - 검토 후 적용:`);
+            mediumConfidence.slice(0, 3).forEach((conv, index) => {
+              recommendations.push(`${index + 1}. "${conv.originalText}" → ${conv.finalConversion}`);
+            });
+            if (mediumConfidence.length > 3) {
+              recommendations.push(`   ... 외 ${mediumConfidence.length - 3}개 더`);
+            }
+            recommendations.push('');
+          }
+
+          if (lowConfidence.length > 0) {
+            recommendations.push(`🔍 **낮은 신뢰도 (${lowConfidence.length}개)** - 수동 처리 권장:`);
+            lowConfidence.slice(0, 3).forEach((conv, index) => {
+              recommendations.push(`${index + 1}. "${conv.originalText}" → ${conv.finalConversion}`);
+            });
+            if (lowConfidence.length > 3) {
+              recommendations.push(`   ... 외 ${lowConfidence.length - 3}개 더`);
+            }
+            recommendations.push('');
+          }
+
+          // 한영 혼용 변환 예시
+          const bestMixed = highConfidence[0] || mediumConfidence[0] || lowConfidence[0];
+          if (bestMixed) {
+            recommendations.push(`📝 **한영 혼용 변환 예시**:`);
+            recommendations.push(`원본: "${bestMixed.originalText}"`);
+            recommendations.push(`분석: ${bestMixed.analysis.segments.map(s => `[${s.type}] "${s.text}"`).join(' + ')}`);
+            recommendations.push(`변환: ${bestMixed.finalConversion}`);
+            recommendations.push('');
+          }
+        }
+      }
+
+      // === ✅ 매칭된 번역 (대체 가능한 단어들) ===
+      if (translationMatches.length > 0) {
+        recommendations.push(`✅ **매칭된 번역 (${translationMatches.length}개)**`);
+        
+        // 신뢰도별로 분류
+        const perfectMatches = translationMatches.filter(m => m.confidence >= 0.95);
+        const goodMatches = translationMatches.filter(m => m.confidence >= 0.8 && m.confidence < 0.95);
+        const partialMatches = translationMatches.filter(m => m.confidence < 0.8);
+
+        // 완전 매칭 (신뢰도 95% 이상)
+        if (perfectMatches.length > 0) {
+          recommendations.push(`🎯 **완전 매칭 (${perfectMatches.length}개)** - 바로 대체 가능:`);
+          perfectMatches.slice(0, 5).forEach((match, index) => {
+            recommendations.push(`${index + 1}. "${match.korean}" → ${match.keyPath}`);
+          });
+          if (perfectMatches.length > 5) {
+            recommendations.push(`   ... 외 ${perfectMatches.length - 5}개 더`);
+          }
+          recommendations.push('');
+        }
+
+        // 조합 매칭 (신뢰도 80-94%)
+        if (goodMatches.length > 0) {
+          recommendations.push(`🔗 **조합 매칭 (${goodMatches.length}개)** - 단어 조합으로 매칭:`);
+          goodMatches.slice(0, 3).forEach((match, index) => {
+            recommendations.push(`${index + 1}. "${match.korean}" → ${match.keyPath}`);
+          });
+          if (goodMatches.length > 3) {
+            recommendations.push(`   ... 외 ${goodMatches.length - 3}개 더`);
+          }
+          recommendations.push('');
+        }
+
+        // 부분 매칭 (신뢰도 80% 미만)
+        if (partialMatches.length > 0) {
+          recommendations.push(`⚡ **부분 매칭 (${partialMatches.length}개)** - 일부 단어만 매칭:`);
+          partialMatches.slice(0, 3).forEach((match, index) => {
+            recommendations.push(`${index + 1}. "${match.korean}" → ${match.keyPath}`);
+          });
+          if (partialMatches.length > 3) {
+            recommendations.push(`   ... 외 ${partialMatches.length - 3}개 더`);
+          }
+          recommendations.push('');
+        }
+
+        // 변환 예시 제공
+        const bestMatch = perfectMatches[0] || goodMatches[0] || partialMatches[0];
+        if (bestMatch) {
+          const sectionType = this.getTextSectionType(bestMatch.korean, extractions);
+          const functionName = this.getFunctionNameForSection(sectionType);
+          const conversionExample = this.generateConversionExample(bestMatch.korean, bestMatch.keyPath, functionName);
+          recommendations.push(`📝 **변환 예시**: ${conversionExample}`);
+          recommendations.push('');
+        }
       }
     }
 
